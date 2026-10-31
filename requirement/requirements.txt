@@ -1,0 +1,6 @@
+torch==2.6.0
+torchvision==0.21.0
+numpy>=1.26,<3
+Pillow>=10
+tqdm>=4.66
+pytest>=8

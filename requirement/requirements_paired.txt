@@ -1,0 +1,2 @@
+# Additional dependency only; keep the existing torch/torchvision environment.
+opencv-python-headless==4.11.0.86

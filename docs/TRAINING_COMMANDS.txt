@@ -1,0 +1,179 @@
+# Mobile VOD training commands
+# Choose the required section; do not execute this entire document as a script.
+
+cd "/home/amin/Projects/object detection/mobile_vod"
+PYTHON="/home/amin/anaconda3/envs/speech_env/bin/python"
+ORIGINAL="/home/amin/Projects/object detection/mobile_vod"
+JOINT_DIR="runs/joint_random_frozen_latest_big"
+VID="/home/amin/Projects/object detection/ILSVRC2015"
+TRAIN="$VID/Annotations/VID/imagenet_vid_train.json"
+VAL="$VID/Annotations/VID/imagenet_vid_val.json"
+FRAMES="$VID/Data/VID"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_THREADING_LAYER=GNU
+
+# Run this setup in each terminal before a command below.
+# --epochs is the total target, including resumed epochs.
+# Fresh-run destinations must not contain an earlier run.
+
+# Reconstructed stage 1 command matching saved settings; separate output.
+"$PYTHON" train.py \
+  --stage 1 \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --max-val-videos 100 --subset-seed 7 \
+  --seed 0 --epochs 50 --batch-size 32 --num-workers 8 \
+  --prefetch-factor 1 --sharing-strategy file_system \
+  --cudnn-benchmark --learning-rate 0.003 --device cuda \
+  --backbone-weights weights/mobilenet_v1_1.0_224_backbone.pt \
+  --checkpoint-out runs/big_stage1_reproduction/stage1.pt
+
+# Big model stage 2 initialization
+
+# Start a fresh stage 2 from the existing best stage 1 checkpoint.
+"$PYTHON" train.py \
+  --stage 2 \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 \
+  --seed 0 --epochs 50 --batch-size 16 --clip-stride 10 \
+  --num-workers 4 --prefetch-factor 1 \
+  --sharing-strategy file_system --cudnn-benchmark \
+  --frozen-backbone-batch-size 0 \
+  --learning-rate 0.003 --device cuda \
+  --checkpoint-in "$ORIGINAL/runs/stage1_best.pt" \
+  --checkpoint-out runs/big_stage2_reproduction/stage2.pt
+
+# Big model stage 2 continuation
+
+# Continue the existing big stage 2 run; do not start a duplicate job.
+"$PYTHON" train.py \
+  --stage 2 \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 \
+  --seed 0 --epochs 50 --batch-size 16 --clip-stride 10 \
+  --num-workers 4 --prefetch-factor 1 \
+  --sharing-strategy file_system --cudnn-benchmark \
+  --frozen-backbone-batch-size 0 --device cuda \
+  --resume runs/big_stage2_continued/stage2.pt \
+  --checkpoint-out runs/big_stage2_continued/stage2.pt
+
+##### start small α = 0.35 stage 1, then automatically start stage 2
+
+"$PYTHON" -u train.py \
+  --stage 1 \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 \
+  --seed 0 --epochs 50 --batch-size 32 --num-workers 8 \
+  --prefetch-factor 1 --sharing-strategy file_system \
+  --cudnn-benchmark --learning-rate 0.003 --device cuda \
+  --width-mult 0.35 \
+  --backbone-init slice-pretrained \
+  --backbone-weights weights/mobilenet_v1_1.0_224_backbone.pt \
+  --epochs 50 \
+  --num-workers 1 \
+  --checkpoint-out runs/standalone_alpha035_320_stage1/detector.pt \
+&& \
+"$PYTHON" -u train.py \
+  --stage 2 \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 \
+  --seed 0 --epochs 50 --batch-size 32 --num-workers 8 \
+  --prefetch-factor 1 --sharing-strategy file_system \
+  --cudnn-benchmark --learning-rate 0.003 --device cuda \
+  --epochs 50 \
+  --clip-stride 10 \
+  --num-workers 1 \
+  --frozen-backbone-batch-size 32 \
+  --checkpoint-in runs/standalone_alpha035_320_stage1/detector_best.pt \
+  --checkpoint-out runs/standalone_alpha035_320_stage2/detector.pt
+ #####################
+# Small model training
+
+# Original small-model configuration: 10 zero-memory + 5 clean-memory.
+# The saved run reached epoch 6 before the joint transition.
+# This is the initialization command, not a resume command.
+"$PYTHON" train_paired_vod.py \
+  --big-checkpoint "$ORIGINAL/runs/stage2_best.pt" \
+  --fast-init slice-big \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 --seed 0 \
+  --batch-size 16 --clip-length 10 --clip-stride 10 \
+  --num-workers 2 --prefetch-factor 1 \
+  --sharing-strategy file_system \
+  --reset-fast-bn --fast-bn-momentum 0.01 \
+  --zero-memory-epochs 10 --clean-memory-epochs 5 \
+  --warmup-interval 4 \
+  --learning-rate 0.0001 --fast-learning-rate 0.001 \
+  --schedules fixed4 big small \
+  --memory-corruption-probability 0 \
+  --diagnostic-validation --validation-interval 4 \
+  --log-every 500 --epochs 15 --device cuda \
+  --checkpoint-out runs/paired_warmup_10_5_matched/detector.pt
+
+# To resume that same small run, use the same command but REPLACE:
+# --big-checkpoint "$ORIGINAL/runs/stage2_best.pt"
+# with:
+# --resume runs/paired_warmup_10_5_matched/detector.pt
+# Do not resume it merely to restart the already-prepared joint run.
+
+# Resume the original small model run
+# Optional continuation of the 10 plus 5 schedule, not required for joint training.
+
+"$PYTHON" train_paired_vod.py \
+  --resume runs/paired_warmup_10_5_matched/detector.pt \
+  --fast-init slice-big \
+  --annotations "$TRAIN" --frames-root "$FRAMES" \
+  --val-annotations "$VAL" --val-frames-root "$FRAMES" \
+  --val-frames-per-video 20 --subset-seed 7 --seed 0 \
+  --batch-size 16 --clip-length 10 --clip-stride 10 \
+  --num-workers 2 --prefetch-factor 1 \
+  --sharing-strategy file_system \
+  --reset-fast-bn --fast-bn-momentum 0.01 \
+  --zero-memory-epochs 10 --clean-memory-epochs 5 \
+  --warmup-interval 4 \
+  --learning-rate 0.0001 --fast-learning-rate 0.001 \
+  --schedules fixed4 big small \
+  --memory-corruption-probability 0 \
+  --diagnostic-validation --validation-interval 4 \
+  --log-every 500 --epochs 15 --device cuda \
+  --checkpoint-out runs/paired_warmup_10_5_matched/detector.pt
+
+# Joint training with the big model frozen
+
+# Prepare a NEW frozen-big joint experiment from the saved small run.
+# Loads the big backbone AND shared LSTM/SSD from the latest stage2.pt.
+# Keeps small weights; resets optimizer accumulators.
+# Starts joint training next epoch: epoch 7 for the epoch-6 source.
+# The generated launcher uses:
+# --schedules random --freeze-big-in-joint
+
+
+# Run preparation ONCE, only if JOINT_DIR does not already exist.
+if [[ ! -e "$JOINT_DIR" ]]; then
+  "$PYTHON" prepare_joint_training.py \
+    --checkpoint runs/paired_warmup_10_5_matched/detector.pt \
+    --big-checkpoint runs/big_stage2_continued/stage2.pt \
+    --checkpoint-out "$JOINT_DIR/detector.pt" \
+    --joint-mode frozen --start-joint-now --epochs 20
+fi
+
+# Start or resume the existing prepared joint run.
+# Stop any other job writing to this run before launching.
+export MKL_THREADING_LAYER=GNU
+bash "$JOINT_DIR/resume_joint_training.sh"
+
+# The prepared run already contains big epoch-35 weights.
+# Resuming does not reload subsequent changes to the big checkpoint.
+
+# Resume joint training directly (standalone command; no setup above needed).
+# Restores this run's latest detector.pt, including optimizer and RNG state.
+# Continues random selection with big/shared frozen toward 20 total epochs.
+# Do not rerun preparation or launch a second job for the same run.
+cd "/home/ai/Documents/ChatGPT/Object Detection/mobile_vod"
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_THREADING_LAYER=GNU \
+bash runs/joint_random_frozen_latest_big/resume_joint_training.sh

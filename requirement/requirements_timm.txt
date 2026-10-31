@@ -1,0 +1,2 @@
+# Optional V2 dependency; install without upgrading existing torch/torchvision.
+timm==1.0.22

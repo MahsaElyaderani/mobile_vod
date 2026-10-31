@@ -1,0 +1,27 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local editor, OS, and secret files
+.idea/
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Generated artifacts; retain utility scripts stored alongside them
+/runs/**
+!/runs/**/
+!/runs/**/*.sh
+!/runs/**/*.py
+/results/**
+!/results/**/
+!/results/**/*.sh
+!/results/**/*.py
+/weights/
+*.pt
+*.pth
+*.ckpt
