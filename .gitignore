@@ -21,11 +21,12 @@ venv/
 /tests/
 /test/
 
-# Publish only the supported training/evaluation Bash launchers
+# Publish only the supported Bash launchers
 *.sh
 !/launchers/run_train_evaluate.sh
 !/launchers/run_joint_subset50.sh
 !/launchers/run_joint_interval_analysis.sh
+!/launchers/show_train_history.sh
 
 /weights/
 *.pt

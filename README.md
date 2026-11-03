@@ -136,9 +136,17 @@ Existing standalone detection stages remain available through `train.py`;
 `train_joint_pretrain.py` and `train_paired_vod.py` provide separate joint entry points.
 The shared launcher replaces the older family launchers.
 
+Show saved classification and detection history while training:
+
+```bash
+bash launchers/show_train_history.sh
+```
+
+Pass a run folder as the first argument to limit the report to that run.
+
 MobileNetV1 is no longer supported by the active code. Its checkpoints require
 the archived version; existing MobileNetV2 and EfficientNet checkpoint formats
 are preserved. Local archives, datasets, and checkpoint weights are not published.
 
-Local `docs/`, `results/`, `runs/`, `scripts/`, and `tests/` folders and monitoring
-utilities are excluded from Git. Only training/evaluation Bash launchers are published.
+Local `docs/`, `results/`, `runs/`, `scripts/`, and `tests/` folders are excluded
+from Git. Supported training, evaluation, and history Bash scripts live in `launchers/`.
