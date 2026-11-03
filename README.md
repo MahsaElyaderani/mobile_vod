@@ -50,41 +50,45 @@ Initial backbone training downloads pretrained weights through timm.
 
 ## Train and evaluate
 
-Review the settings at the top of `launchers/run_matched.sh`, then run:
+Choose one family; each command trains its small standalone, big standalone,
+and joint experiments, then evaluates their best detection checkpoints:
 
 ```bash
-bash launchers/run_matched.sh
+bash launchers/run_train_evaluate.sh mobilenetv2
+bash launchers/run_train_evaluate.sh efficientnet
+bash launchers/run_train_evaluate.sh edgenext
 ```
 
-The current launcher runs `small_050`, `big_120d`, and `joint_120d` on the same
-25% training subset. Small uses `mobilenetv2_050.lamb_in1k` at 160×160; big uses
-`mobilenetv2_120d.ra_in1k` at 320×320. Joint combines both with shared memory
-and detection heads.
+| Family | Small / big / joint experiments |
+| --- | --- |
+| `mobilenetv2` | `small_050`, `big_120d`, `joint_120d` |
+| `efficientnet` | `small_tinynet_d`, `big_efficientnet_b0`, `joint_efficientnet_b0_tinynet_d` |
+| `edgenext` | `small_edgenext_xx`, `big_edgenext_small`, `joint_edgenext` |
 
-Each experiment performs multi-label classification pretraining, then detection
-training initialized from its best classification checkpoint, then detection
-evaluation. Launcher defaults differ:
+| Stage | Epochs | Batch size | Initial LR | Schedule |
+| --- | ---: | ---: | ---: | --- |
+| Classification | 5 | 8 images | 0.01 | Linear |
+| Detection | 100 | 4 clips | 0.001 | Cosine |
 
-| Launcher | Classification | Detection |
-| --- | --- | --- |
-| `launchers/run_matched.sh` | 1 epoch, batch 16 images, linear decay | 1 epoch, batch 8 clips, linear decay |
-| `launchers/run_efficientnet_tinynet.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
-| `launchers/run_edgenext.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
-| `launchers/run_detection_cosine_100epochs.sh` | Uses existing best classification weights | 100 epochs, batch 4 clips, cosine decay |
+Use `MATCHED_TRAIN_SUBSET = PROJECT_ROOT / "splits/train_25pct.json"` in `path.py`
+for the shared 25% subset. Classification repeats each image for three recurrent
+steps; detection uses six-frame clips. Validation runs every 5,000 updates on up
+to 100 videos with 20 frames each (subset seed 7, training seed 0). Final evaluation
+uses the same validation selection, big-only mode for standalone models and
+interval 8 for joint models. Adjust batch sizes to GPU memory before starting.
 
-These launchers use the configured training subset (25% by default) and validation
-every 5,000 updates on up to 100 videos with 20 frames each. Classification repeats each image for three
-recurrent steps; detection uses six-frame clips. Adjust batch sizes to GPU memory
-before starting, and use a new output root for a different training budget.
+New runs use separate family folders:
+`RUNS_DIR/shared_<family>_subset25_class5_linear_det100_cosine/seed_0/<experiment>/`.
+Previous experiment folders are not reused. Repeating the same command resumes
+latest `classification.pt` and `detection.pt`, including mid-epoch progress.
+Keep the saved training budget and settings unchanged when resuming.
 
-Latest checkpoints (`classification.pt`, `detection.pt`) resume automatically,
-including mid-epoch progress. Best checkpoints (`*_best.pt`) use highest
-classification micro AP or detection mAP@0.5. Linear-budget resumes require the
-saved budget to match. The launcher evaluates the best detector checkpoints.
+Fresh detection starts from `classification_best.pt`. Best checkpoints use
+highest classification micro AP or detection mAP@0.5; final evaluation loads
+`detection_best.pt`. Evaluation JSON files go to a timestamped family folder under
+`RESULTS_DIR`. All paths are configured in `path.py`.
 
-Checkpoints go under `RUNS_DIR/matched_subset25_linear_1epoch/seed_0/`; evaluation
-JSON files go under a timestamped directory in `RESULTS_DIR`. Paths are configured
-in `path.py`. For individual commands and options, use:
+For individual commands and options:
 
 ```bash
 python train_matched.py --help
@@ -93,31 +97,11 @@ python -m evaluate.evaluate_paired_vod --help
 
 Existing standalone detection stages remain available through `train.py`;
 `train_joint_pretrain.py` and `train_paired_vod.py` provide separate joint entry points.
+The older family launchers are retained locally but excluded from Git.
 
-For the EfficientNet-B0/TinyNet-D standalone and joint experiments, run:
-
-```bash
-bash launchers/run_efficientnet_tinynet.sh
-```
-
-This launcher resumes its latest checkpoints and evaluates
-its best detectors in a separate `efficientnet_tinynet_subset25_class5_linear_det100_cosine`
-run directory. These defaults differ from `launchers/run_matched.sh`; match settings before
-comparing model families.
-
-`launchers/run_detection_cosine_100epochs.sh` runs only MobileNetV2 detection training from
-existing best classification checkpoints. Each invocation creates a fresh output
-directory; it does not automatically resume or run final evaluation.
-
-For the three EdgeNeXt experiments, run:
-
-```bash
-bash launchers/run_edgenext.sh
-```
-
-This uses the same settings as the EfficientNet launcher, resumes latest
-checkpoints, and evaluates best detectors under separate
-`edgenext_subset25_class5_linear_det100_cosine` run and result folders.
+`launchers/run_detection_cosine_100epochs.sh` remains a separate MobileNetV2
+workflow using previous best classification checkpoints. Each invocation creates
+a fresh detection output directory; it does not automatically resume or run final evaluation.
 
 MobileNetV1 is no longer supported by the active code. Its checkpoints require
 the archived version; existing MobileNetV2 and EfficientNet checkpoint formats

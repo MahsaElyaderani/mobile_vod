@@ -1,24 +1,38 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: bash launchers/run_train_evaluate.sh {mobilenetv2|efficientnet|edgenext}" >&2
+  exit 2
+fi
+FAMILY="$1"
+case "$FAMILY" in
+  mobilenetv2) EXPERIMENTS="small_050 big_120d joint_120d" ;;
+  efficientnet) EXPERIMENTS="small_tinynet_d big_efficientnet_b0 joint_efficientnet_b0_tinynet_d" ;;
+  edgenext) EXPERIMENTS="small_edgenext_xx big_edgenext_small joint_edgenext" ;;
+  *) echo "Unknown family: $FAMILY" >&2; exit 2 ;;
+esac
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate vision
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-EXPERIMENTS="small_050 big_120d joint_120d"
-# One full epoch over the fixed 25% training subset, per stage.
-EPOCHS=1
-CLASS_BATCH=16
-DET_BATCH=8
+# Matched settings for all three backbone families.
+CLASS_EPOCHS=5
+DET_EPOCHS=100
+CLASS_BATCH=8
+DET_BATCH=4
 WORKERS=4
 VALIDATE_EVERY=5000
 RUNS="$(python path.py --get RUNS_DIR)"
 RESULTS="$(python path.py --get RESULTS_DIR)"
 TRAIN_SUBSET="$(python path.py --get MATCHED_TRAIN_SUBSET)"
 [[ -f "$TRAIN_SUBSET" ]] || { printf 'Missing training subset: %s\n' "$TRAIN_SUBSET" >&2; exit 1; }
-ROOT="$RUNS/matched_subset25_linear_1epoch/seed_0"
-OUT="$RESULTS/matched_subset25_linear_1epoch_seed0_$(date +%Y%m%d_%H%M%S)"
+ROOT="$RUNS/shared_${FAMILY}_subset25_class5_linear_det100_cosine/seed_0"
+OUT="$RESULTS/shared_${FAMILY}_subset25_class5_linear_det100_cosine_seed0_$(date +%Y%m%d_%H%M%S)"
 
+# Re-running resumes only this shared-launcher family folder.
+printf '\nCheckpoint folder: %s\n' "$ROOT"
 for EXP in $EXPERIMENTS; do
   DIR="$ROOT/$EXP"
   CLASS_RESUME=()
@@ -30,7 +44,7 @@ for EXP in $EXPERIMENTS; do
     --experiment "$EXP" --task classification \
     --video-ids "$TRAIN_SUBSET" \
     --checkpoint-out "$DIR/classification.pt" "${CLASS_RESUME[@]}" \
-    --epochs "$EPOCHS" --lr-schedule linear --validate-every "$VALIDATE_EVERY" \
+    --epochs "$CLASS_EPOCHS" --lr-schedule linear --validate-every "$VALIDATE_EVERY" \
     --batch-size "$CLASS_BATCH" --num-workers "$WORKERS" \
     --steps 3 --learning-rate 0.01 \
     --max-val-videos 100 --val-frames-per-video 20 \
@@ -41,7 +55,7 @@ for EXP in $EXPERIMENTS; do
     --video-ids "$TRAIN_SUBSET" \
     --checkpoint-out "$DIR/detection.pt" "${DET_RESUME[@]}" \
     --init-checkpoint "$DIR/classification_best.pt" \
-    --epochs "$EPOCHS" --lr-schedule linear --validate-every "$VALIDATE_EVERY" \
+    --epochs "$DET_EPOCHS" --lr-schedule cosine --validate-every "$VALIDATE_EVERY" \
     --batch-size "$DET_BATCH" --num-workers "$WORKERS" \
     --clip-length 6 --clip-stride 6 --learning-rate 0.001 \
     --max-val-videos 100 --val-frames-per-video 20 \

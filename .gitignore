@@ -23,9 +23,7 @@ venv/
 
 # Publish only the supported training/evaluation Bash launchers
 *.sh
-!/launchers/run_matched.sh
-!/launchers/run_efficientnet_tinynet.sh
-!/launchers/run_edgenext.sh
+!/launchers/run_train_evaluate.sh
 !/launchers/run_detection_cosine_100epochs.sh
 !/launchers/run_joint_subset50.sh
 !/launchers/run_evaluation.sh
