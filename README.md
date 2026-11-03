@@ -59,6 +59,42 @@ bash launchers/run_train_evaluate.sh efficientnet
 bash launchers/run_train_evaluate.sh edgenext
 ```
 
+The optional second argument is `all` (default), `train`, or `eval`:
+
+```bash
+bash launchers/run_train_evaluate.sh edgenext train
+bash launchers/run_train_evaluate.sh edgenext eval
+```
+
+Evaluation-only mode requires all three best detection checkpoints and never
+runs training. Each evaluation creates a new results directory.
+
+The launcher defaults to `TRAIN_SUBSET=0.25`. Set `0.5` for the fixed 50%
+manifest; the run name is automatic:
+
+```bash
+TRAIN_SUBSET=0.5 \
+  bash launchers/run_train_evaluate.sh edgenext all
+# Later, evaluate the same run without training:
+TRAIN_SUBSET=0.5 \
+  bash launchers/run_train_evaluate.sh edgenext eval
+```
+
+Explicit JSON manifest paths are also accepted through `TRAIN_SUBSET`. These
+fractions select the saved video subsets; they do not resample the dataset.
+
+Optional `MAX_VAL_VIDEOS`, `VAL_FRAMES_PER_VIDEO`, and `SUBSET_SEED` environment
+variables override 100, 20, and 7 for both training validation and final evaluation.
+Use the same values across families for comparisons. When evaluating later, supply
+any validation overrides again. Default run names include the family, subset filename,
+and epoch budgets; nondefault validation settings add a suffix. Existing default
+25% run names are preserved. Use `RUN_NAME` only to select an explicit folder or
+start an independent repeat. Different manifests with the same filename need
+separate `RUN_NAME` values; the trainer still rejects incompatible resumes. To evaluate
+an existing run with different validation coverage, set `RUN_NAME` to that run explicitly. Continuing an existing
+25% checkpoint on 50% with its optimizer/schedule is the separate
+`launchers/run_joint_subset50.sh` workflow.
+
 | Family | Small / big / joint experiments |
 | --- | --- |
 | `mobilenetv2` | `small_050`, `big_120d`, `joint_120d` |
@@ -70,15 +106,16 @@ bash launchers/run_train_evaluate.sh edgenext
 | Classification | 5 | 8 images | 0.01 | Linear |
 | Detection | 100 | 4 clips | 0.001 | Cosine |
 
-Use `MATCHED_TRAIN_SUBSET = PROJECT_ROOT / "splits/train_25pct.json"` in `path.py`
-for the shared 25% subset. Classification repeats each image for three recurrent
+This launcher selects `splits/train_25pct.json` by default, independently of
+`MATCHED_TRAIN_SUBSET` in `path.py`. Classification repeats each image for three recurrent
 steps; detection uses six-frame clips. Validation runs every 5,000 updates on up
 to 100 videos with 20 frames each (subset seed 7, training seed 0). Final evaluation
 uses the same validation selection, big-only mode for standalone models and
 interval 8 for joint models. Adjust batch sizes to GPU memory before starting.
 
 New runs use separate family folders:
-`RUNS_DIR/shared_<family>_subset25_class5_linear_det100_cosine/seed_0/<experiment>/`.
+`RUNS_DIR/shared_<family>_subset25_class5_linear_det100_cosine/seed_0/<experiment>/`
+for 25%, or the equivalent `subset50` folder for 50%.
 Previous experiment folders are not reused. Repeating the same command resumes
 latest `classification.pt` and `detection.pt`, including mid-epoch progress.
 Keep the saved training budget and settings unchanged when resuming.
@@ -97,11 +134,7 @@ python -m evaluate.evaluate_paired_vod --help
 
 Existing standalone detection stages remain available through `train.py`;
 `train_joint_pretrain.py` and `train_paired_vod.py` provide separate joint entry points.
-The older family launchers are retained locally but excluded from Git.
-
-`launchers/run_detection_cosine_100epochs.sh` remains a separate MobileNetV2
-workflow using previous best classification checkpoints. Each invocation creates
-a fresh detection output directory; it does not automatically resume or run final evaluation.
+The shared launcher replaces the older family launchers.
 
 MobileNetV1 is no longer supported by the active code. Its checkpoints require
 the archived version; existing MobileNetV2 and EfficientNet checkpoint formats
