@@ -3,7 +3,7 @@ set -e
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate vision
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 EXPERIMENTS="small_050 big_120d joint_120d"
 # One full epoch over the fixed 25% training subset, per stage.

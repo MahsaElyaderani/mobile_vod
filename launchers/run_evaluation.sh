@@ -1,6 +1,6 @@
 (
 set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MKL_THREADING_LAYER=GNU
 PYTHON="$(python3 path.py --get PYTHON)"
 BIG="$("$PYTHON" path.py --get EVALUATION_BIG)"

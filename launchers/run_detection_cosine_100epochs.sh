@@ -4,7 +4,7 @@ set -eo pipefail
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate vision
 set -u
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 EXPERIMENTS="joint_120d big_120d small_050"
 RUNS="$(python path.py --get RUNS_DIR)"

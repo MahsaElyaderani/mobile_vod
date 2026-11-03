@@ -3,10 +3,10 @@ set -eo pipefail
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate vision
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-EXPERIMENTS="small_edgenext_xx big_edgenext_small joint_edgenext"
-# Match the EfficientNet runs: 5-epoch linear classification, 100-epoch cosine detection.
+EXPERIMENTS="small_tinynet_d big_efficientnet_b0 joint_efficientnet_b0_tinynet_d"
+# Match the later MobileNet runs: 5-epoch linear classification, 100-epoch cosine detection.
 CLASS_EPOCHS=5
 DET_EPOCHS=100
 CLASS_BATCH=8
@@ -17,10 +17,10 @@ RUNS="$(python path.py --get RUNS_DIR)"
 RESULTS="$(python path.py --get RESULTS_DIR)"
 TRAIN_SUBSET="$(python path.py --get MATCHED_TRAIN_SUBSET)"
 [[ -f "$TRAIN_SUBSET" ]] || { printf 'Missing training subset: %s\n' "$TRAIN_SUBSET" >&2; exit 1; }
-ROOT="$RUNS/edgenext_subset25_class5_linear_det100_cosine/seed_0"
-OUT="$RESULTS/edgenext_subset25_class5_linear_det100_cosine_seed0_$(date +%Y%m%d_%H%M%S)"
+ROOT="$RUNS/efficientnet_tinynet_subset25_class5_linear_det100_cosine/seed_0"
+OUT="$RESULTS/efficientnet_tinynet_subset25_class5_linear_det100_cosine_seed0_$(date +%Y%m%d_%H%M%S)"
 
-# Re-running resumes the latest checkpoints in this EdgeNeXt folder.
+# Re-running resumes only this experiment folder; MobileNet paths are never used.
 printf '\nCheckpoint folder: %s\n' "$ROOT"
 for EXP in $EXPERIMENTS; do
   DIR="$ROOT/$EXP"

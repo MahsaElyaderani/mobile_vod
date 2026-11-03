@@ -50,10 +50,10 @@ Initial backbone training downloads pretrained weights through timm.
 
 ## Train and evaluate
 
-Review the settings at the top of `run_matched.sh`, then run:
+Review the settings at the top of `launchers/run_matched.sh`, then run:
 
 ```bash
-bash run_matched.sh
+bash launchers/run_matched.sh
 ```
 
 The current launcher runs `small_050`, `big_120d`, and `joint_120d` on the same
@@ -67,10 +67,10 @@ evaluation. Launcher defaults differ:
 
 | Launcher | Classification | Detection |
 | --- | --- | --- |
-| `run_matched.sh` | 1 epoch, batch 16 images, linear decay | 1 epoch, batch 8 clips, linear decay |
-| `run_efficientnet_tinynet.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
-| `run_edgenext.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
-| `run_detection_cosine_100epochs.sh` | Uses existing best classification weights | 100 epochs, batch 4 clips, cosine decay |
+| `launchers/run_matched.sh` | 1 epoch, batch 16 images, linear decay | 1 epoch, batch 8 clips, linear decay |
+| `launchers/run_efficientnet_tinynet.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
+| `launchers/run_edgenext.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
+| `launchers/run_detection_cosine_100epochs.sh` | Uses existing best classification weights | 100 epochs, batch 4 clips, cosine decay |
 
 These launchers use the configured training subset (25% by default) and validation
 every 5,000 updates on up to 100 videos with 20 frames each. Classification repeats each image for three
@@ -97,22 +97,22 @@ Existing standalone detection stages remain available through `train.py`;
 For the EfficientNet-B0/TinyNet-D standalone and joint experiments, run:
 
 ```bash
-bash run_efficientnet_tinynet.sh
+bash launchers/run_efficientnet_tinynet.sh
 ```
 
 This launcher resumes its latest checkpoints and evaluates
 its best detectors in a separate `efficientnet_tinynet_subset25_class5_linear_det100_cosine`
-run directory. These defaults differ from `run_matched.sh`; match settings before
+run directory. These defaults differ from `launchers/run_matched.sh`; match settings before
 comparing model families.
 
-`run_detection_cosine_100epochs.sh` runs only MobileNetV2 detection training from
+`launchers/run_detection_cosine_100epochs.sh` runs only MobileNetV2 detection training from
 existing best classification checkpoints. Each invocation creates a fresh output
 directory; it does not automatically resume or run final evaluation.
 
 For the three EdgeNeXt experiments, run:
 
 ```bash
-bash run_edgenext.sh
+bash launchers/run_edgenext.sh
 ```
 
 This uses the same settings as the EfficientNet launcher, resumes latest

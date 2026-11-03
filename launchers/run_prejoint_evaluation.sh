@@ -2,10 +2,10 @@
 # Run AFTER training, with the GPU otherwise idle. Never launches training.
 set -euo pipefail
 if [[ $# -ne 0 && $# -ne 2 ]]; then
-  echo "Usage: bash run_prejoint_evaluation.sh [checkpoint output_directory]; defaults are in path.py" >&2
+  echo "Usage: bash launchers/run_prejoint_evaluation.sh [checkpoint output_directory]; defaults are in path.py" >&2
   exit 2
 fi
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 PYTHON_BIN="$(python3 path.py --get PYTHON)"
 PAIR_DIR="$("$PYTHON_BIN" path.py --get PREJOINT_PAIR_DIR)"
 ANNOTATIONS="$("$PYTHON_BIN" path.py --get VAL_ANNOTATIONS)"

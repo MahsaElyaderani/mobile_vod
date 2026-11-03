@@ -3,7 +3,7 @@ set -eo pipefail
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate vision
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 RUNS="$(python path.py --get RUNS_DIR)"
 # Optional first argument overrides the source best checkpoint for the first run.
