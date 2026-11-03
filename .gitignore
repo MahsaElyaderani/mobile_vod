@@ -12,15 +12,26 @@ venv/
 .env.*
 !.env.example
 
-# Generated artifacts; retain utility scripts stored alongside them
-/runs/**
-!/runs/**/
-!/runs/**/*.sh
-!/runs/**/*.py
-/results/**
-!/results/**/
-!/results/**/*.sh
-!/results/**/*.py
+# Local documentation, experiments, tests, and generated outputs
+/docs/
+/results/
+/runs/
+/scripts/
+/script/
+/tests/
+/test/
+
+# Publish only the supported training/evaluation Bash launchers
+*.sh
+!/run_matched.sh
+!/run_efficientnet_tinynet.sh
+!/run_edgenext.sh
+!/run_detection_cosine_100epochs.sh
+!/run_joint_subset50.sh
+!/run_evaluation.sh
+!/run_prejoint_evaluation.sh
+!/run_joint_interval_analysis.sh
+
 /weights/
 *.pt
 *.pth

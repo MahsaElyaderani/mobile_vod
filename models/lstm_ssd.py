@@ -10,7 +10,7 @@ try:
 except ImportError:  # package-style import
     from ..config import ModelConfig, SSDConfig
 
-from .timm_mobilenet_v2 import build_backbone
+from .backbones import build_backbone
 from .bottleneck_lstm import BottleneckLSTMCell, State
 from .ssd_head import SSDFeatureMaps, SSDBoxPredictor
 from .anchors import SSDAnchorGenerator
@@ -87,7 +87,7 @@ class LSTMSSD(nn.Module):
         *,
         anchor_dtype: torch.dtype,
     ) -> Tuple[Dict[str, Tensor | List[Tensor]], State]:
-        if self.model_cfg.uses_timm and backbone_feature.shape[1:] != (1280, self.model_cfg.image_size // 32, self.model_cfg.image_size // 32):
+        if self.model_cfg.uses_timm and backbone_feature.shape[1:] != (self.model_cfg.mobilenet_output_channels, self.model_cfg.image_size // 32, self.model_cfg.image_size // 32):
             raise ValueError("timm ConvLSTM feature shape does not match the configured input size.")
         lstm_feature, new_state = self.lstm(backbone_feature, state)
         features = self.feature_maps(lstm_feature)

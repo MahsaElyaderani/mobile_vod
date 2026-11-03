@@ -9,7 +9,7 @@ CLASSIFICATION_FORMAT = 1
 
 def make_joint_config(backbone='timm_mobilenet_v2', width=1.):
     return ModelConfig(backbone=backbone, width_mult=width, image_size=320,
-                       mobilenet_output_channels=1280)
+                       mobilenet_output_channels=304 if backbone.startswith('edgenext_') else 1280)
 
 
 def initialize_backbones(big, small, weights=None, random_init=False):

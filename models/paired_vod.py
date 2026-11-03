@@ -41,7 +41,7 @@ class PairedVOD(nn.Module):
             raise TypeError("The big branch must be a native stage-2 LSTMSSD.")
         self.big = big
         self.paired_config = paired_config or PairedConfig(
-            fast_width_mult=(1.0 if big.model_cfg.backbone == 'efficientnet_b0' else
+            fast_width_mult=(1.0 if big.model_cfg.backbone in ('efficientnet_b0', 'edgenext_small') else
                              .5),
             fast_image_size=big.model_cfg.image_size // 2)
         cfg = self.paired_config
@@ -49,18 +49,24 @@ class PairedVOD(nn.Module):
             raise ValueError("Joint inputs must be big 320 and small 160.")
         if big.model_cfg.num_classes != 30 or not big.ssd_cfg.include_background_class:
             raise ValueError("This paired implementation requires the native 30-class VID detector.")
-        if big.model_cfg.backbone == 'efficientnet_b0':
+        if big.model_cfg.backbone == 'edgenext_small':
+            if cfg.fast_width_mult != 1.0 or cfg.min_depth != 8:
+                raise ValueError('EdgeNeXt Small pairs only with unscaled XX-Small.')
+            from .backbones import TimmMobileNetV2Backbone
+            self.fast_backbone = TimmMobileNetV2Backbone(1.0, 16, model_name='edgenext_xx_small.in1k')
+            self.small_projection = nn.Conv2d(168, 304, 1, bias=False)
+        elif big.model_cfg.backbone == 'efficientnet_b0':
             if cfg.fast_width_mult != 1.0 or cfg.min_depth != 8:
                 raise ValueError('EfficientNet-B0 pairs only with unscaled TinyNet-D.')
-            from .timm_mobilenet_v2 import TimmMobileNetV2Backbone
+            from .backbones import TimmMobileNetV2Backbone
             self.fast_backbone = TimmMobileNetV2Backbone(1.0, 16, model_name='tinynet_d.in1k')
             self.small_projection = nn.Identity()
-        elif big.model_cfg.backbone == 'tinynet_d':
-            raise ValueError('TinyNet-D is supported as a matched standalone small backbone.')
+        elif big.model_cfg.backbone in ('tinynet_d', 'edgenext_xx_small'):
+            raise ValueError('This backbone is supported as a matched standalone small model.')
         elif big.model_cfg.uses_timm:
             if cfg.fast_width_mult not in (.5, 1.) or cfg.min_depth != 8:
                 raise ValueError("The timm small branch requires width .5/1.0 and min_depth 8.")
-            from .timm_mobilenet_v2 import TimmMobileNetV2Backbone
+            from .backbones import TimmMobileNetV2Backbone
             self.fast_backbone = TimmMobileNetV2Backbone(cfg.fast_width_mult, 16)
             self.small_projection = nn.Identity()
         else:

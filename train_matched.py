@@ -31,12 +31,15 @@ from utils.runtime import load_checkpoint, atomic_save_checkpoint
 EXPERIMENTS = {'small_050': .5, 'big_100': 1., 'big_110d': 1.1, 'big_120d': 1.2,
                'joint_100': 1., 'joint_110d': 1.1, 'joint_120d': 1.2,
                'small_tinynet_d': 1., 'big_efficientnet_b0': 1.,
-               'joint_efficientnet_b0_tinynet_d': 1.}
+               'joint_efficientnet_b0_tinynet_d': 1.,
+               'small_edgenext_xx': 1., 'big_edgenext_small': 1., 'joint_edgenext': 1.}
 
 
 class MatchedDetector(PairedVOD):
     def __init__(self, experiment, seed=0):
-        family = ('tinynet_d' if experiment == 'small_tinynet_d' else
+        family = ('edgenext_xx_small' if experiment == 'small_edgenext_xx' else
+                  'edgenext_small' if 'edgenext' in experiment else
+                  'tinynet_d' if experiment == 'small_tinynet_d' else
                   'efficientnet_b0' if 'efficientnet_b0' in experiment else 'timm_mobilenet_v2')
         cfg = make_joint_config(family, EXPERIMENTS[experiment])
         paired = PairedConfig(fast_width_mult=.5 if family == 'timm_mobilenet_v2' else 1.)
@@ -50,9 +53,9 @@ class MatchedDetector(PairedVOD):
             self.fast_backbone = nn.Identity()
             self.small_projection = nn.Identity()
             if self.standalone == 'small':
-                self.big.backbone.network.blocks[5][0].conv_dw.stride = (1, 1)
-                self.big.backbone.output_stride = 16
-                self.big.backbone.stride_changes = ['blocks.5.0.conv_dw: stride 2 -> 1; dilation unchanged']
+                self.big.backbone.set_output_stride16()
+                if family == 'edgenext_xx_small':
+                    self.small_projection = nn.Conv2d(168, 304, 1, bias=False)
         # Separate initialization stream: changing backbone depth cannot change shared weights.
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(seed)
@@ -64,7 +67,7 @@ class MatchedDetector(PairedVOD):
 
     def forward_big(self, frames, state=None):
         if self.standalone == 'small':
-            return self.big._forward_from_backbone(self.big.backbone(frames.small), state, True,
+            return self.big._forward_from_backbone(self.small_projection(self.big.backbone(frames.small)), state, True,
                                                    anchor_dtype=frames.dtype)
         return super().forward_big(frames, state)
 

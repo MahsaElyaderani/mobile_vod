@@ -3,14 +3,19 @@
 PyTorch video object detection inspired by *Looking Fast and Slow: Memory-Guided
 Mobile Video Object Detection*. The project combines pretrained image backbones,
 recurrent memory, and SSD detection heads for the 30 ImageNet VID classes.
-It supports timm MobileNetV2 and the EfficientNet-B0/TinyNet-D pair, with standalone
-and joint models. Both families use a shared ConvLSTM and SSD detection heads in
+It supports timm MobileNetV2, EfficientNet-B0/TinyNet-D, and EdgeNeXt, with standalone
+and joint models. All three families use a shared ConvLSTM and SSD detection heads in
 joint mode. Backbone weights are ImageNet-pretrained; SSD heads are trained here.
 
 | Model family | Small backbone (160×160) | Big backbone (320×320) |
 | --- | --- | --- |
 | MobileNetV2 | `mobilenetv2_050.lamb_in1k` | `mobilenetv2_100.ra_in1k`, `mobilenetv2_110d.ra_in1k`, or `mobilenetv2_120d.ra_in1k` |
 | EfficientNet / TinyNet | `tinynet_d.in1k` | `efficientnet_b0.ra_in1k` |
+| EdgeNeXt | `edgenext_xx_small.in1k` | `edgenext_small.usi_in1k` |
+
+Backbones are implemented in `models/backbones.py`. EdgeNeXt uses a 304-channel
+LSTM input and a small-branch 168→304 projection; other families retain 1280 input
+channels. All use a 256-channel LSTM output and the same SSD head architecture.
 
 ## Setup
 
@@ -64,9 +69,10 @@ evaluation. Launcher defaults differ:
 | --- | --- | --- |
 | `run_matched.sh` | 1 epoch, batch 16 images, linear decay | 1 epoch, batch 8 clips, linear decay |
 | `run_efficientnet_tinynet.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
+| `run_edgenext.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
 | `run_detection_cosine_100epochs.sh` | Uses existing best classification weights | 100 epochs, batch 4 clips, cosine decay |
 
-All three use the configured training subset (25% by default) and validation
+These launchers use the configured training subset (25% by default) and validation
 every 5,000 updates on up to 100 videos with 20 frames each. Classification repeats each image for three
 recurrent steps; detection uses six-frame clips. Adjust batch sizes to GPU memory
 before starting, and use a new output root for a different training budget.
@@ -103,12 +109,19 @@ comparing model families.
 existing best classification checkpoints. Each invocation creates a fresh output
 directory; it does not automatically resume or run final evaluation.
 
-Inspect saved classification and detection histories with:
+For the three EdgeNeXt experiments, run:
 
 ```bash
-bash show_train_history.sh
+bash run_edgenext.sh
 ```
+
+This uses the same settings as the EfficientNet launcher, resumes latest
+checkpoints, and evaluates best detectors under separate
+`edgenext_subset25_class5_linear_det100_cosine` run and result folders.
 
 MobileNetV1 is no longer supported by the active code. Its checkpoints require
 the archived version; existing MobileNetV2 and EfficientNet checkpoint formats
 are preserved. Local archives, datasets, and checkpoint weights are not published.
+
+Local `docs/`, `results/`, `runs/`, `scripts/`, and `tests/` folders and monitoring
+utilities are excluded from Git. Only training/evaluation Bash launchers are published.

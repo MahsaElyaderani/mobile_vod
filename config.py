@@ -29,21 +29,21 @@ class ModelConfig:
 
     @property
     def uses_timm(self):
-        return self.backbone in ('timm_mobilenet_v2', 'tinynet_d', 'efficientnet_b0')
+        return self.backbone in ('timm_mobilenet_v2', 'tinynet_d', 'efficientnet_b0', 'edgenext_small', 'edgenext_xx_small')
 
     @property
     def input_interpolation(self):
         return "bicubic" if self.uses_timm else "bilinear"
 
     def __post_init__(self) -> None:
-        if self.backbone not in ("timm_mobilenet_v2", "tinynet_d", "efficientnet_b0"):
+        if not self.uses_timm:
             raise ValueError("Unknown backbone family.")
         widths = (0.5, 1.0, 1.1, 1.2) if self.backbone == "timm_mobilenet_v2" else (1.0,)
         if self.width_mult not in widths:
             raise ValueError(f"Supported {self.backbone} widths are {widths}.")
         if self.image_size not in (160, 320):
             raise ValueError("Inputs must be 320 (big) or 160 (small).")
-        expected = 1280
+        expected = 304 if self.backbone.startswith('edgenext_') else 1280
         if self.mobilenet_output_channels != expected:
             raise ValueError(f"Backbone output channels must be {expected} for this width.")
         if self.lstm_channels != 256:

@@ -55,6 +55,8 @@ class JointClassifier(nn.Module):
             # Repeated image: retain one backbone graph for all recurrent steps.
             if step == 0 or not reuse_features:
                 large = self.big_backbone(small if self.standalone == 'small' else big_frames(frames))
+                if self.standalone == 'small':
+                    large = self.small_projection(large)
                 fast = large if self.standalone else self.small_projection(self.small_backbone(small))
             if large.shape != fast.shape or large.shape[1:] != (self.model_cfg.mobilenet_output_channels, 10, 10):
                 raise ValueError('Joint backbone features do not match the shared LSTM input.')
