@@ -58,9 +58,16 @@ and detection heads.
 
 Each experiment performs multi-label classification pretraining, then detection
 training initialized from its best classification checkpoint, then detection
-evaluation. Current defaults are **1 epoch per stage**, batch sizes **16 images / 8
-clips**, linear learning-rate decay, and validation every 5,000 updates on up to
-100 videos with 20 frames each. Classification repeats each image for three
+evaluation. Launcher defaults differ:
+
+| Launcher | Classification | Detection |
+| --- | --- | --- |
+| `run_matched.sh` | 1 epoch, batch 16 images, linear decay | 1 epoch, batch 8 clips, linear decay |
+| `run_efficientnet_tinynet.sh` | 5 epochs, batch 8 images, linear decay | 100 epochs, batch 4 clips, cosine decay |
+| `run_detection_cosine_100epochs.sh` | Uses existing best classification weights | 100 epochs, batch 4 clips, cosine decay |
+
+All three use the configured training subset (25% by default) and validation
+every 5,000 updates on up to 100 videos with 20 frames each. Classification repeats each image for three
 recurrent steps; detection uses six-frame clips. Adjust batch sizes to GPU memory
 before starting, and use a new output root for a different training budget.
 
@@ -87,12 +94,14 @@ For the EfficientNet-B0/TinyNet-D standalone and joint experiments, run:
 bash run_efficientnet_tinynet.sh
 ```
 
-This launcher uses 5 classification epochs (linear decay, batch 8) followed by
-100 detection epochs (cosine decay, batch 4), using the same configured training
-subset and validation sampling. It resumes its latest checkpoints and evaluates
+This launcher resumes its latest checkpoints and evaluates
 its best detectors in a separate `efficientnet_tinynet_subset25_class5_linear_det100_cosine`
 run directory. These defaults differ from `run_matched.sh`; match settings before
 comparing model families.
+
+`run_detection_cosine_100epochs.sh` runs only MobileNetV2 detection training from
+existing best classification checkpoints. Each invocation creates a fresh output
+directory; it does not automatically resume or run final evaluation.
 
 Inspect saved classification and detection histories with:
 
