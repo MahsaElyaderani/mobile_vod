@@ -26,8 +26,6 @@ venv/
 !/launchers/run_train_evaluate.sh
 !/launchers/run_detection_cosine_100epochs.sh
 !/launchers/run_joint_subset50.sh
-!/launchers/run_evaluation.sh
-!/launchers/run_prejoint_evaluation.sh
 !/launchers/run_joint_interval_analysis.sh
 
 /weights/
