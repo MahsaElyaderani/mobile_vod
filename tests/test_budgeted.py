@@ -96,7 +96,7 @@ else:
         model = torch.nn.Linear(1, 1)
         optimizer = torch.optim.RMSprop(model.parameters(), lr=.01)
         args = SimpleNamespace(epochs=2, max_batches=2, batch_size=1, learning_rate=.01,
-                               seed=0, validate_every=3, task='classification')
+                               seed=0, validate_every=3, task='classification', lr_schedule='linear')
         checkpoints, rates = [], []
 
         def batches(model, data, args, optimizer, loader):
@@ -129,7 +129,94 @@ else:
         self.assertTrue(all(torch.equal(a[0], b[0]) for a, b in
                             zip(full, budget_loader(RandomSamples(), args, 1, 0, 6))))
 
-    def test_seven_budgeted_pipelines_and_mid_epoch_resume(self):
+    def test_expanded_subset_continuation_and_resume(self):
+        torch.set_num_threads(2)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for split in ('train', 'val'):
+                (root/split).mkdir()
+                images, annotations = [], []
+                for i in range(12):
+                    Image.new('RGB', (64, 64), (30+10*i, 80, 150)).save(root/split/f'{i}.png')
+                    images.append(dict(id=i, video_id=i//6+1, frame_id=i%6,
+                                       width=64, height=64, file_name=f'{split}/{i}.png'))
+                    annotations.append(dict(id=i, image_id=i, category_id=1, bbox=[8, 8, 40, 40]))
+                (root/f'{split}.json').write_text(json.dumps(dict(videos=[{'id': 1}, {'id': 2}],
+                    images=images, annotations=annotations, categories=[{'id': i, 'name': str(i)} for i in range(1,31)])))
+            (root/'small.json').write_text('[1]')
+            (root/'large.json').write_text('[1,2]')
+            common = ['--experiment', 'joint_120d', '--annotations', str(root/'train.json'),
+                '--frames-root', str(root), '--val-annotations', str(root/'val.json'),
+                '--val-frames-root', str(root), '--video-ids', str(root/'small.json'),
+                '--epochs', '3', '--batch-size', '1', '--num-workers', '0', '--clip-length', '2',
+                '--clip-stride', '2', '--lr-schedule', 'cosine', '--validate-every', '2',
+                '--val-frames-per-video', '2', '--device', 'cpu', '--no-progress']
+            def stop(payload, path, **kwargs):
+                save_matched_checkpoints(payload, path, **kwargs)
+                raise InterruptedError()
+            with contextlib.redirect_stdout(io.StringIO()), patch.object(
+                    TimmMobileNetV2Backbone, 'load_pretrained', return_value={'test': 'random'}):
+                cls = root/'original/classification.pt'
+                src = root/'original/detection.pt'
+                with patch('train_matched.save_matched_checkpoints', side_effect=stop):
+                    with self.assertRaises(InterruptedError):
+                        train(parse_args(common + ['--task', 'classification', '--checkpoint-out', str(cls)]))
+                    with self.assertRaises(InterruptedError):
+                        train(parse_args(common + ['--task', 'detection', '--init-checkpoint', str(cls),
+                                                  '--checkpoint-out', str(src)]))
+                best = src.with_stem('detection_best')
+                original = best.read_bytes()
+                source = load_checkpoint(best)
+                destination = root/'expanded/detection.pt'
+                options = common + ['--task', 'detection', '--resume', str(best), '--expand-subset',
+                                    '--video-ids', str(root/'large.json'), '--checkpoint-out', str(destination)]
+                # Before any update, optimizer, model, LR and cosine progress must be unchanged.
+                with patch('train_matched.train_budgeted', return_value=None):
+                    train(parse_args(options))
+                baseline = load_checkpoint(destination)
+                for key in ('model', 'optimizer', 'scheduler', 'rng_state', 'history'):
+                    self.assertTrue(_same_value(source[key], baseline[key]), key)
+                self.assertNotEqual(source['run_id'], baseline['run_id'])
+                self.assertEqual(baseline['budget']['origin_updates'], 2)
+                self.assertEqual(baseline['budget']['total_updates'], 9)
+                self.assertEqual(baseline['budget']['batch'], 0)
+                self.assertEqual(baseline['budget']['batches_per_epoch'], 6)
+                self.assertEqual(len(baseline['training_signatures']), 3)
+                self.assertNotIn('expand_subset', baseline['resume_arguments'])
+                # Ordinary resume works from the newly saved baseline and across epoch boundaries.
+                resume_options = common + ['--task', 'detection', '--resume', str(destination),
+                    '--video-ids', str(root/'large.json'), '--checkpoint-out', str(destination)]
+                full = train(parse_args(resume_options))
+                interrupted = root/'interrupted/detection.pt'
+                with patch('train_matched.save_matched_checkpoints', side_effect=stop):
+                    with self.assertRaises(InterruptedError):
+                        train(parse_args(options + ['--checkpoint-out', str(interrupted)]))
+                mid = load_checkpoint(interrupted)
+                self.assertEqual(mid['global_step'], 4)
+                self.assertAlmostEqual(mid['optimizer']['param_groups'][0]['lr'],
+                    source['scheduler']['base_lrs'][0]*(1+__import__('math').cos(__import__('math').pi*4/9))/2)
+                resumed = train(parse_args(resume_options + ['--resume', str(interrupted),
+                                                            '--checkpoint-out', str(interrupted)]))
+                for key in ('model', 'optimizer', 'scheduler', 'rng_state', 'budget'):
+                    self.assertTrue(_same_value(full[key], resumed[key]), key)
+                self.assertEqual(full['global_step'], 9)
+                self.assertEqual(full['optimizer']['param_groups'][0]['lr'], 0.)
+                self.assertEqual([r['validation']['mAP@0.5'] for r in full['history']],
+                                 [r['validation']['mAP@0.5'] for r in resumed['history']])
+                model_from_matched(load_checkpoint(interrupted.with_stem('detection_best')))
+                self.assertEqual(best.read_bytes(), original)
+                for extra in (['--checkpoint-out', str(root/'original/other.pt')],
+                              ['--video-ids', str(root/'small.json')], ['--learning-rate', '.01'],
+                              ['--lr-schedule', 'linear'], ['--epochs', '4'], ['--batch-size', '2']):
+                    with self.assertRaises((ValueError, FileExistsError)):
+                        train(parse_args(options + extra))
+                with self.assertRaises(ValueError):
+                    train(parse_args([x for x in options if x != '--expand-subset']))
+
+    def test_cosine_pipelines_and_mid_epoch_resume(self):
+        self.test_seven_budgeted_pipelines_and_mid_epoch_resume(schedule='cosine')
+
+    def test_seven_budgeted_pipelines_and_mid_epoch_resume(self, schedule='linear'):
         torch.set_num_threads(2)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -145,7 +232,7 @@ else:
             common = ['--annotations', str(root/'train.json'), '--frames-root', str(root),
                       '--val-annotations', str(root/'val.json'), '--val-frames-root', str(root),
                       '--epochs', '1', '--batch-size', '1', '--max-batches', '3', '--num-workers', '0',
-                      '--clip-length', '2', '--clip-stride', '2', '--steps', '2', '--lr-schedule', 'linear',
+                      '--clip-length', '2', '--clip-stride', '2', '--steps', '2', '--lr-schedule', schedule,
                       '--validate-every', '2', '--val-frames-per-video', '2', '--device', 'cpu', '--no-progress']
             weights = (contextlib.nullcontext() if os.environ.get('TIMM_VERIFY_PRETRAINED') == '1' else
                        patch.object(TimmMobileNetV2Backbone, 'load_pretrained', return_value={'test': 'random'}))
@@ -165,12 +252,13 @@ else:
                             with patch('train_matched.save_matched_checkpoints', side_effect=record):
                                 full = train(parse_args(options))
                             self.assertEqual([row['update'] for row in full['history']], [2, 3])
-                            self.assertAlmostEqual(snapshots[0][1], float(lr)/3)
+                            self.assertAlmostEqual(snapshots[0][1], float(lr) * (1/3 if schedule == 'linear' else .25))
                             self.assertEqual(snapshots[-1][1], 0.)
                             self.assertEqual(full['scheduler']['last_epoch'], 3)
                             self.assertEqual(len(list(destination.parent.glob(task+'*.pt'))), 2)
                             model_from_matched(load_checkpoint(destination.with_stem(task+'_best')))
-                            if experiment not in ('small_050', 'joint_100'):
+                            if experiment not in ('small_050', 'big_120d', 'joint_100', 'joint_120d',
+                                                  'small_tinynet_d', 'big_efficientnet_b0', 'joint_efficientnet_b0_tinynet_d'):
                                 continue
                             interrupted = root/experiment/(task+'_interrupted.pt')
                             interrupted_options = options + ['--checkpoint-out', str(interrupted)]
@@ -185,7 +273,7 @@ else:
                             defaults = parse_args(['--experiment', experiment, '--task', task,
                                 '--resume', str(interrupted)])
                             self.assertEqual(defaults.epochs, 1)
-                            self.assertEqual(defaults.lr_schedule, 'linear')
+                            self.assertEqual(defaults.lr_schedule, schedule)
                             restored = model_from_matched(mid).eval()
                             if task == 'classification':
                                 from datasets.paired_frames import PairedFrames
@@ -214,6 +302,9 @@ else:
                                 train(parse_args(interrupted_options + ['--resume', str(interrupted), '--epochs', '2']))
                             with self.assertRaises(ValueError):
                                 train(parse_args(interrupted_options + ['--resume', str(interrupted), '--learning-rate', '.2']))
+                            with self.assertRaises(ValueError):
+                                train(parse_args(interrupted_options + ['--resume', str(interrupted),
+                                    '--lr-schedule', 'cosine' if schedule == 'linear' else 'linear']))
 
 
 if __name__ == '__main__':

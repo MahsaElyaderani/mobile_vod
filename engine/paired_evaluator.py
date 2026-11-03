@@ -82,7 +82,7 @@ def decode(output, model, threshold, maximum=100):
 
 def profiled_costs(model, device, warmup):
     frame = torch.zeros(1, 3, model.model_cfg.image_size, model.model_cfg.image_size, device=device)
-    if model.model_cfg.backbone == "timm_mobilenet_v2":
+    if model.model_cfg.uses_timm:
         frame = PairedFrames(frame, torch.zeros(1, 3, 160, 160, device=device))
     state = model.initial_state(frame)
     with torch.no_grad():
@@ -136,7 +136,7 @@ def evaluate_paired(model, dataset, policy, options=None, corruption=None,
                 synchronize(device)
                 started = time.perf_counter()
                 frame_cpu = load_frame(dataset, record, model.model_cfg.image_size, model.model_cfg.input_interpolation,
-                                       paired=model.model_cfg.backbone == "timm_mobilenet_v2")
+                                       paired=model.model_cfg.uses_timm)
                 change = context.observe_frame(frame_cpu)
                 scene = (policy.mode == "fixed" and policy.scene_change_threshold is not None
                          and change > policy.scene_change_threshold)

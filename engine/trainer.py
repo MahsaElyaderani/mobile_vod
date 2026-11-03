@@ -91,7 +91,7 @@ def train_detector_stage1(
 
 
 def freeze_backbone_through_conv13(model: LSTMSSD) -> None:
-    """Freeze the MobileNetV1 backbone through Conv13."""
+    """Freeze the entire backbone for the native recurrent detection stage."""
     for parameter in model.backbone.parameters():
         parameter.requires_grad_(False)
     # Frozen BatchNorm statistics should not continue updating in stage 2.

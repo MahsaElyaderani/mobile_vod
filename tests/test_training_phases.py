@@ -37,7 +37,7 @@ class TrainingPhaseTests(unittest.TestCase):
             standalone_args(['--phase', 'standalone_detection', '--stage', '1', '--epochs', '1'])
 
     def test_joint_alias_and_legacy_initialization_match(self):
-        common = ['--checkpoint-out', 'unused.pt', '--fast-init', 'slice-big', '--fast-width-mult', '.35']
+        common = ['--checkpoint-out', 'unused.pt', '--fast-init', 'timm', '--fast-width-mult', '.5']
         new = joint_args(common + ['--phase', 'joint_detection', '--init-source', 'standalone_detection', '--init-checkpoint', 'old_stage2.pt'])
         old = joint_args(common + ['--big-checkpoint', 'old_stage2.pt'])
         self.assertEqual(vars(new), vars(old))

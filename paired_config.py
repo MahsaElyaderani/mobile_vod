@@ -9,7 +9,7 @@ def probability(value, name):
 
 @dataclass(frozen=True)
 class PairedConfig:
-    fast_width_mult: float = 0.35
+    fast_width_mult: float = 0.5
     fast_image_size: int = 160
     min_depth: int = 8
     small_only_state_policy: str = "update"

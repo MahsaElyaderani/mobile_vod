@@ -3,11 +3,11 @@ import random
 import torch
 
 try:
-    from config import ModelConfig, SSDConfig
+    from config import ModelConfig, SSDConfig, checkpoint_model_config
     from models.ssd import MobileNetSSD
     from models.lstm_ssd import LSTMSSD
 except ImportError:
-    from ..config import ModelConfig, SSDConfig
+    from ..config import ModelConfig, SSDConfig, checkpoint_model_config
     from ..models.ssd import MobileNetSSD
     from ..models.lstm_ssd import LSTMSSD
 
@@ -23,7 +23,7 @@ def model_from_checkpoint(checkpoint):
     if stage not in ['stage1', 'stage2']:
         raise ValueError(f'Unknown checkpoint stage: {stage}')
     cls = MobileNetSSD if stage == 'stage1' else LSTMSSD
-    model = cls(ModelConfig(**checkpoint['model_config']), SSDConfig(**checkpoint['ssd_config']))
+    model = cls(checkpoint_model_config(checkpoint['model_config']), SSDConfig(**checkpoint['ssd_config']))
     model.load_state_dict(checkpoint['model'], strict=True)
     return model
 

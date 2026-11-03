@@ -27,7 +27,7 @@ class DetectorOnlyTests(unittest.TestCase):
                 with patch('evaluate.evaluate_paired_vod.time.perf_counter', side_effect=range(8)):
                     timings = benchmark_backbones(model, steps=2, warmup=1)
                 expected = {'big', 'small'} if experiment.startswith('joint') else (
-                    {'small'} if experiment == 'small_050' else {'big'})
+                    {'small'} if experiment.startswith('small_') else {'big'})
                 self.assertEqual(set(timings), expected)
                 for name, row in timings.items():
                     self.assertEqual(row['input_shape'], [1, 3, 160, 160] if name == 'small' else [1, 3, 320, 320])

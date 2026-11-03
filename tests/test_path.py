@@ -86,9 +86,9 @@ class PathTests(unittest.TestCase):
             args = paths.parse_paths(parser, 'compare_paired_runs', ['--runs', 'custom'])
             self.assertEqual(args.runs, ['custom'])
 
-    def test_weight_producer_and_consumer_agree(self):
-        self.assertEqual(paths.task_paths('prepare_weights')['output'],
-                         paths.task_paths('train')['backbone_weights'])
+    def test_archived_weight_preparation_is_not_configured(self):
+        self.assertNotIn('prepare_weights', paths.TASK_PATHS)
+        self.assertNotIn('backbone_weights', paths.task_paths('train'))
 
     def test_required_shell_setting_fails_when_unset(self):
         with patch.object(paths, 'TRAIN_ANNOTATIONS', None), self.assertRaisesRegex(ValueError, 'TRAIN_ANNOTATIONS'):

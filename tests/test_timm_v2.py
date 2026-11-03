@@ -36,20 +36,28 @@ class TimmV2Tests(unittest.TestCase):
     def setUpClass(cls):
         torch.set_num_threads(2)
 
-    def test_v1_metadata_and_strict_configuration(self):
-        self.assertNotIn('backbone', model_config_dict(ModelConfig()))
-        self.assertEqual(ModelConfig().input_interpolation, 'bilinear')
+    def test_active_defaults_and_archived_v1_rejection(self):
+        from config import checkpoint_model_config
+        self.assertEqual(model_config_dict(ModelConfig())['backbone'], 'timm_mobilenet_v2')
+        self.assertEqual(ModelConfig().input_interpolation, 'bicubic')
+        self.assertEqual(ModelConfig().mobilenet_output_channels, 1280)
         with self.assertRaises(ValueError):
-            ModelConfig(backbone='timm_mobilenet_v2')
+            ModelConfig(backbone='mobilenet_v1')
+        for values in ({}, {'backbone': 'mobilenet_v1'}):
+            with self.assertRaisesRegex(ValueError, 'archived'):
+                checkpoint_model_config(values)
         with self.assertRaises(ValueError):
-            PairedVOD(LSTMSSD(config()), PairedConfig())
+            ModelConfig(mobilenet_output_channels=1024)
+        with self.assertRaises(ValueError):
+            PairedVOD(LSTMSSD(config()), PairedConfig(fast_width_mult=.35))
 
     def test_rgb_scaling_normalization_and_full_frame_geometry(self):
         rng = np.random.default_rng(4)
         image = Image.fromarray(rng.integers(0, 256, (197, 281, 3), dtype=np.uint8))
         target = {'boxes': torch.tensor([[0., 0., 281., 197.]]), 'labels': torch.tensor([1])}
-        for width, size in [(1., 320), (.5, 160)]:
-            backbone = TimmMobileNetV2Backbone(width)
+        for width, size, name in [(1., 320, None), (.5, 160, None),
+                                  (1., 320, 'efficientnet_b0.ra_in1k'), (1., 160, 'tinynet_d.in1k')]:
+            backbone = TimmMobileNetV2Backbone(width, model_name=name)
             frames, targets = EvalTransform(size, interpolation='bicubic')([image], [target])
             reference = TF.to_tensor(TF.resize(image, [size, size], TF.InterpolationMode.BICUBIC, antialias=True))
             reference = TF.normalize(reference, backbone.data_config['mean'], backbone.data_config['std'])
@@ -136,8 +144,10 @@ class PretrainedTests(unittest.TestCase):
         import json
         torch.set_num_threads(2)
         reports = []
-        for width, size, stride in [(1., 320, 32), (.5, 160, 16), (1.1, 320, 32), (1.2, 320, 32)]:
-            wrapper = TimmMobileNetV2Backbone(width, 32).eval()
+        for width, size, stride, name in [(1., 320, 32, None), (.5, 160, 16, None),
+                (1.1, 320, 32, None), (1.2, 320, 32, None),
+                (1., 160, 16, 'tinynet_d.in1k'), (1., 320, 32, 'efficientnet_b0.ra_in1k')]:
+            wrapper = TimmMobileNetV2Backbone(width, 32, model_name=name).eval()
             provenance = wrapper.load_pretrained()
             reference = timm.create_model(wrapper.model_name, pretrained=True, cache_dir=str(TIMM_CACHE)).eval()
             cfg = timm.data.resolve_model_data_config(reference)
@@ -149,7 +159,7 @@ class PretrainedTests(unittest.TestCase):
             normalized = TF.normalize((x + 1) / 2, cfg['mean'], cfg['std'])
             with torch.no_grad():
                 torch.testing.assert_close(wrapper(x), reference.forward_features(normalized), rtol=0, atol=0)
-            adapted = TimmMobileNetV2Backbone(width, stride).eval()
+            adapted = TimmMobileNetV2Backbone(width, stride, model_name=name).eval()
             provenance = adapted.load_pretrained()
             if stride == 16:
                 reference.blocks[5][0].conv_dw.stride = (1, 1)

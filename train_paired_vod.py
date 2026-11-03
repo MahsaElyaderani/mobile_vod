@@ -15,11 +15,11 @@ def parse_args(argv=None, *, resume_payload=None):
                         help='Use a standalone detector, joint classifier, or fresh LSTM/heads.')
     parser.add_argument('--init-checkpoint', '--big-checkpoint', dest='big_checkpoint',
                         help='Initialization checkpoint; standalone_detection uses existing big stage2 weights.')
-    parser.add_argument('--backbone', choices=('mobilenet_v1', 'timm_mobilenet_v2'))
+    parser.add_argument('--backbone', choices=('timm_mobilenet_v2',))
     parser.add_argument('--big-width-mult', type=float)
-    parser.add_argument('--backbone-weights')
+    parser.add_argument('--backbone-weights', help=argparse.SUPPRESS)
     parser.add_argument('--random-backbones', action='store_true', help='Fresh initialization only: skip pretrained weights.')
-    parser.add_argument("--fast-init", choices=("slice-big", "random", "checkpoint", "standalone", "timm"), default=None)
+    parser.add_argument("--fast-init", choices=("random", "checkpoint", "standalone", "timm"), default=None)
     parser.add_argument("--fast-checkpoint", help="Backbone state_dict; native detector with --fast-init standalone.")
     parser.add_argument("--fast-width-mult", type=float, default=None)
     parser.add_argument("--fast-image-size", type=int, default=160)
@@ -49,7 +49,7 @@ def parse_args(argv=None, *, resume_payload=None):
         from utils.runtime import load_checkpoint
         initial = load_checkpoint(args.big_checkpoint)
         cfg = initial.get('model_config', {})
-        if args.backbone is not None and args.backbone != cfg.get('backbone', 'mobilenet_v1'):
+        if args.backbone is not None and args.backbone != cfg.get('backbone'):
             parser.error('--backbone differs from the initialization checkpoint')
         if args.big_width_mult is not None and args.big_width_mult != cfg.get('width_mult'):
             parser.error('--big-width-mult differs from the initialization checkpoint')
@@ -61,11 +61,10 @@ def parse_args(argv=None, *, resume_payload=None):
         parser.error('joint_pretrain supplies both backbones; do not override --fast-init/--fast-checkpoint')
     if args.random_backbones and args.init_source != 'fresh':
         parser.error('--random-backbones is only valid with --init-source fresh')
-    is_timm = (initial.get('model_config', {}).get('backbone') if initial else args.backbone) == 'timm_mobilenet_v2'
     if args.fast_init is None:
-        args.fast_init = 'timm' if is_timm else 'slice-big'
+        args.fast_init = 'timm'
     if args.fast_width_mult is None:
-        args.fast_width_mult = .5 if is_timm else .35
+        args.fast_width_mult = .5
     MemoryCorruption(args.memory_corruption_probability, args.memory_dropout, args.memory_noise_std)
     return args
 

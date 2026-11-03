@@ -6,23 +6,11 @@ from typing import Tuple
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Architecture settings for the first, single-Bottleneck-LSTM model.
-
-    Default alpha=1 architecture choices:
-      * alpha=1 MobileNetV1
-      * 320x320 input
-      * Conv13 pointwise output = 1024 channels
-      * one Bottleneck-LSTM after Conv13
-      * 256-channel recurrent state/output
-      * 10-frame training unroll
-
-    The alpha=0.35 standalone variant scales only backbone channels (358 output);
-    recurrent state and downstream SSD widths remain fixed.
-    """
+    """Backbone, shared Bottleneck-LSTM, and SSD architecture settings."""
 
     image_size: int = 320
     width_mult: float = 1.0
-    mobilenet_output_channels: int = 1024
+    mobilenet_output_channels: int = 1280
     lstm_channels: int = 256
     lstm_kernel_size: int = 3
     lstm_forget_bias: float = 1.0
@@ -37,21 +25,25 @@ class ModelConfig:
     # ReLU6 when constructing the cell; choose 'relu' for paper fidelity.
     lstm_activation: str = "relu"
 
-    backbone: str = "mobilenet_v1"
+    backbone: str = "timm_mobilenet_v2"
+
+    @property
+    def uses_timm(self):
+        return self.backbone in ('timm_mobilenet_v2', 'tinynet_d', 'efficientnet_b0')
 
     @property
     def input_interpolation(self):
-        return "bicubic" if self.backbone == "timm_mobilenet_v2" else "bilinear"
+        return "bicubic" if self.uses_timm else "bilinear"
 
     def __post_init__(self) -> None:
-        if self.backbone not in ("mobilenet_v1", "timm_mobilenet_v2"):
+        if self.backbone not in ("timm_mobilenet_v2", "tinynet_d", "efficientnet_b0"):
             raise ValueError("Unknown backbone family.")
-        widths = (0.5, 1.0, 1.1, 1.2) if self.backbone == "timm_mobilenet_v2" else (0.35, 1.0)
+        widths = (0.5, 1.0, 1.1, 1.2) if self.backbone == "timm_mobilenet_v2" else (1.0,)
         if self.width_mult not in widths:
             raise ValueError(f"Supported {self.backbone} widths are {widths}.")
         if self.image_size not in (160, 320):
             raise ValueError("Inputs must be 320 (big) or 160 (small).")
-        expected = 1280 if self.backbone == "timm_mobilenet_v2" else max(8, int(1024 * self.width_mult))
+        expected = 1280
         if self.mobilenet_output_channels != expected:
             raise ValueError(f"Backbone output channels must be {expected} for this width.")
         if self.lstm_channels != 256:
@@ -129,7 +121,11 @@ class TrainConfig:
 
 def model_config_dict(config):
     """Serialize the model configuration for checkpoints."""
-    result = asdict(config)
-    if result["backbone"] == "mobilenet_v1":
-        result.pop("backbone")
-    return result
+    return asdict(config)
+
+
+def checkpoint_model_config(values):
+    """Do not interpret older unnamed V1 configurations as the new V2 default."""
+    if values.get('backbone', 'mobilenet_v1') == 'mobilenet_v1':
+        raise ValueError('MobileNetV1 checkpoints require the archived project version.')
+    return ModelConfig(**values)

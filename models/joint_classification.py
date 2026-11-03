@@ -41,7 +41,7 @@ class JointClassifier(nn.Module):
             use_big, _ = random_training_schedule(len(frames), steps, frames.device)
         if use_big.dtype != torch.bool or use_big.shape != (len(frames), steps):
             raise ValueError('Branch choices must be boolean [batch, steps].')
-        if self.model_cfg.backbone == 'timm_mobilenet_v2':
+        if self.model_cfg.uses_timm:
             if not isinstance(frames, PairedFrames):
                 raise ValueError('V2 classification requires independently resized PairedFrames.')
             small = frames.small
@@ -49,7 +49,7 @@ class JointClassifier(nn.Module):
             small = F.interpolate(big_frames(frames), (160, 160), mode='bilinear', align_corners=False)
         state = self.lstm.init_state(len(frames), 10, 10, frames.device, frames.dtype)
         logits = []
-        reuse_features = (self.model_cfg.backbone == 'timm_mobilenet_v2'
+        reuse_features = (self.model_cfg.uses_timm
                           and self.paired_config.freeze_bn_stats)
         for step in range(steps):
             # Repeated image: retain one backbone graph for all recurrent steps.

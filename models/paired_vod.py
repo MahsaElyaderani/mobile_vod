@@ -3,7 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 from paired_config import PairedConfig, MemoryCorruption
 from .lstm_ssd import LSTMSSD
-from .mobilenet_v1 import FastMobileNetV1
 from datasets.paired_frames import PairedFrames, big_frames
 
 
@@ -42,26 +41,30 @@ class PairedVOD(nn.Module):
             raise TypeError("The big branch must be a native stage-2 LSTMSSD.")
         self.big = big
         self.paired_config = paired_config or PairedConfig(
-            fast_width_mult=.5 if big.model_cfg.backbone == "timm_mobilenet_v2" else .35,
+            fast_width_mult=(1.0 if big.model_cfg.backbone == 'efficientnet_b0' else
+                             .5),
             fast_image_size=big.model_cfg.image_size // 2)
         cfg = self.paired_config
         if big.model_cfg.image_size != 320 or cfg.fast_image_size != 160:
             raise ValueError("Joint inputs must be big 320 and small 160.")
         if big.model_cfg.num_classes != 30 or not big.ssd_cfg.include_background_class:
             raise ValueError("This paired implementation requires the native 30-class VID detector.")
-        if big.model_cfg.backbone == "timm_mobilenet_v2":
+        if big.model_cfg.backbone == 'efficientnet_b0':
+            if cfg.fast_width_mult != 1.0 or cfg.min_depth != 8:
+                raise ValueError('EfficientNet-B0 pairs only with unscaled TinyNet-D.')
+            from .timm_mobilenet_v2 import TimmMobileNetV2Backbone
+            self.fast_backbone = TimmMobileNetV2Backbone(1.0, 16, model_name='tinynet_d.in1k')
+            self.small_projection = nn.Identity()
+        elif big.model_cfg.backbone == 'tinynet_d':
+            raise ValueError('TinyNet-D is supported as a matched standalone small backbone.')
+        elif big.model_cfg.uses_timm:
             if cfg.fast_width_mult not in (.5, 1.) or cfg.min_depth != 8:
                 raise ValueError("The timm small branch requires width .5/1.0 and min_depth 8.")
             from .timm_mobilenet_v2 import TimmMobileNetV2Backbone
             self.fast_backbone = TimmMobileNetV2Backbone(cfg.fast_width_mult, 16)
             self.small_projection = nn.Identity()
         else:
-            if cfg.fast_width_mult not in (.35, 1.) or cfg.min_depth != 8:
-                raise ValueError("Supported V1 small widths are .35/1.0 with min_depth 8.")
-            self.fast_backbone = FastMobileNetV1(cfg.fast_width_mult, cfg.min_depth)
-            self.small_projection = nn.Sequential(
-                nn.Conv2d(self.fast_backbone.out_channels, big.model_cfg.mobilenet_output_channels, 1),
-                nn.ReLU6())
+            raise ValueError(f'Unsupported paired backbone: {big.model_cfg.backbone}')
         self.configure_detector_training()
 
     @property
@@ -110,7 +113,7 @@ class PairedVOD(nn.Module):
 
     def fast_features(self, frames):
         self.big._validate_frame(big_frames(frames))
-        if self.model_cfg.backbone == "timm_mobilenet_v2":
+        if self.model_cfg.uses_timm:
             if not isinstance(frames, PairedFrames):
                 raise ValueError("timm small inference requires PairedFrames resized independently from the source RGB frame.")
             resized = frames.small

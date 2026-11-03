@@ -1,4 +1,4 @@
-"""Checkpoint-specific MobileNetV2 features; project inputs are RGB in [-1, 1]."""
+"""Checkpoint-specific timm features; project inputs are RGB in [-1, 1]."""
 import torch
 from torch import nn
 
@@ -8,12 +8,16 @@ MODEL_NAMES = {1.0: 'mobilenetv2_100.ra_in1k', 0.5: 'mobilenetv2_050.lamb_in1k',
 
 
 class TimmMobileNetV2Backbone(nn.Module):
-    def __init__(self, width_mult=1.0, output_stride=32):
+    def __init__(self, width_mult=1.0, output_stride=32, *, model_name=None):
         super().__init__()
         if width_mult not in MODEL_NAMES or output_stride not in (16, 32):
             raise ValueError('Supported timm variants: .5/1.0/1.1d/1.2d; output strides: 32/16.')
         import timm
-        self.model_name = MODEL_NAMES[width_mult]
+        if model_name not in (None, 'tinynet_d.in1k', 'efficientnet_b0.ra_in1k'):
+            raise ValueError('Unsupported pretrained architecture.')
+        if model_name is not None and width_mult != 1.0:
+            raise ValueError('Named TinyNet/EfficientNet checkpoints cannot be width-scaled.')
+        self.model_name = model_name or MODEL_NAMES[width_mult]
         self.width_mult, self.output_stride = width_mult, output_stride
         # Reconstructing saved detectors must never download classification weights.
         self.network = timm.create_model(self.model_name, pretrained=False)
@@ -33,11 +37,11 @@ class TimmMobileNetV2Backbone(nn.Module):
         self.register_buffer('input_mean', torch.tensor(self.data_config['mean']).view(1, 3, 1, 1), persistent=False)
         self.register_buffer('input_std', torch.tensor(self.data_config['std']).view(1, 3, 1, 1), persistent=False)
 
-    @staticmethod
-    def _validate_data_config(config):
+    def _validate_data_config(self, config):
+        size = 152 if self.model_name == 'tinynet_d.in1k' else 224
         if (tuple(config['mean']) != (.485, .456, .406) or
                 tuple(config['std']) != (.229, .224, .225) or
-                config['interpolation'] != 'bicubic' or tuple(config['input_size']) != (3, 224, 224)):
+                config['interpolation'] != 'bicubic' or tuple(config['input_size']) != (3, size, size)):
             raise ValueError('Checkpoint preprocessing differs from the supported detection pipeline.')
 
     def normalize(self, frames):
@@ -70,7 +74,9 @@ class TimmMobileNetV2Backbone(nn.Module):
 
 
 def build_backbone(config):
+    if config.backbone in ('tinynet_d', 'efficientnet_b0'):
+        name = 'tinynet_d.in1k' if config.backbone == 'tinynet_d' else 'efficientnet_b0.ra_in1k'
+        return TimmMobileNetV2Backbone(model_name=name)
     if config.backbone == 'timm_mobilenet_v2':
         return TimmMobileNetV2Backbone(config.width_mult, 32)
-    from .mobilenet_v1 import MobileNetV1Backbone
-    return MobileNetV1Backbone(width_mult=config.width_mult)
+    raise ValueError(f'Unsupported backbone: {config.backbone}')

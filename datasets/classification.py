@@ -8,8 +8,8 @@ from datasets.paired_frames import stack_frames
 
 class ClassificationTransform:
     def __init__(self, backbone, training=True):
-        self.interpolation = 'bicubic' if backbone == 'timm_mobilenet_v2' else 'bilinear'
-        self.paired = backbone == 'timm_mobilenet_v2'
+        self.interpolation = 'bicubic' if backbone in ('timm_mobilenet_v2', 'tinynet_d', 'efficientnet_b0') else 'bilinear'
+        self.paired = backbone in ('timm_mobilenet_v2', 'tinynet_d', 'efficientnet_b0')
         self.training = training
 
     def __call__(self, images, targets):

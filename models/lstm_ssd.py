@@ -20,7 +20,7 @@ class LSTMSSD(nn.Module):
     """Single-Bottleneck-LSTM detector from the paper's Table-1 design.
 
     One frame:
-      RGB -> MobileNetV1 Conv13 -> Bottleneck-LSTM -> 5 SSD feature levels
+      RGB -> timm backbone -> Bottleneck-LSTM -> 5 SSD feature levels
           -> class logits and box offsets.
     """
 
@@ -87,7 +87,7 @@ class LSTMSSD(nn.Module):
         *,
         anchor_dtype: torch.dtype,
     ) -> Tuple[Dict[str, Tensor | List[Tensor]], State]:
-        if self.model_cfg.backbone == "timm_mobilenet_v2" and backbone_feature.shape[1:] != (1280, self.model_cfg.image_size // 32, self.model_cfg.image_size // 32):
+        if self.model_cfg.uses_timm and backbone_feature.shape[1:] != (1280, self.model_cfg.image_size // 32, self.model_cfg.image_size // 32):
             raise ValueError("timm ConvLSTM feature shape does not match the configured input size.")
         lstm_feature, new_state = self.lstm(backbone_feature, state)
         features = self.feature_maps(lstm_feature)

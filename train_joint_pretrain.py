@@ -26,10 +26,10 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     add_data_arguments(p)
     p.add_argument('--phase', choices=('joint_pretrain',), default='joint_pretrain')
-    p.add_argument('--backbone', choices=('mobilenet_v1', 'timm_mobilenet_v2'), default='mobilenet_v1')
+    p.add_argument('--backbone', choices=('timm_mobilenet_v2',), default='timm_mobilenet_v2')
     p.add_argument('--big-width-mult', type=float, default=1.)
     p.add_argument('--fast-width-mult', type=float)
-    p.add_argument('--backbone-weights')
+    p.add_argument('--backbone-weights', help=argparse.SUPPRESS)
     p.add_argument('--random-backbones', action='store_true', help='Explicitly skip pretrained backbone initialization.')
     p.add_argument('--freeze-bn', action='store_true')
     p.add_argument('--val-annotations')
@@ -49,7 +49,7 @@ def parse_args(argv=None):
     p.add_argument('--no-progress', action='store_true')
     args = resume_defaults(p, parse_paths(p, 'train_joint_pretrain', argv), argv)
     if args.fast_width_mult is None:
-        args.fast_width_mult = .5 if args.backbone == 'timm_mobilenet_v2' else .35
+        args.fast_width_mult = .5
     if min(args.epochs, args.steps, args.batch_size) < 1 or args.num_workers < 0:
         p.error('epochs, steps and batch-size must be positive; num-workers nonnegative')
     if not args.freeze_bn and args.batch_size < 2:

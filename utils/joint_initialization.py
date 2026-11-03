@@ -1,29 +1,24 @@
 """Fresh joint models and strict classification-to-detection transfer."""
-from config import ModelConfig
+from config import ModelConfig, checkpoint_model_config
 from paired_config import PairedConfig
 from models.joint_classification import JointClassifier
 from utils.runtime import load_checkpoint
-from utils.pretrained import initialize_standalone_backbone
 
 CLASSIFICATION_FORMAT = 1
 
 
-def make_joint_config(backbone='mobilenet_v1', width=1.):
+def make_joint_config(backbone='timm_mobilenet_v2', width=1.):
     return ModelConfig(backbone=backbone, width_mult=width, image_size=320,
-                       mobilenet_output_channels=1280 if backbone == 'timm_mobilenet_v2' else max(8, int(1024*width)))
+                       mobilenet_output_channels=1280)
 
 
 def initialize_backbones(big, small, weights=None, random_init=False):
+    """Use timm weights; retain the unused weights argument for existing callers."""
     if random_init:
         return {'initialization': 'random'}
     result = {}
     for name, backbone in (('big', big), ('small', small)):
-        if hasattr(backbone, 'load_pretrained'):
-            result[name] = backbone.load_pretrained()
-        else:
-            # Explicitly recorded channel slicing, never represented as exact narrow pretrained weights.
-            method = 'exact' if backbone.out_channels == 1024 else 'slice-pretrained'
-            result[name] = initialize_standalone_backbone(backbone, weights, method)
+        result[name] = backbone.load_pretrained()
     return result
 
 
@@ -35,7 +30,7 @@ def classifier_from_payload(payload):
     mapping = payload.get('class_to_idx', {})
     if len(mapping) != 30 or mapping != {str(k): k-1 for k in range(1, 31)}:
         raise ValueError('Invalid classification class mapping.')
-    model = JointClassifier(ModelConfig(**payload['model_config']), PairedConfig(**payload['paired_config']), len(mapping))
+    model = JointClassifier(checkpoint_model_config(payload['model_config']), PairedConfig(**payload['paired_config']), len(mapping))
     model.load_state_dict(payload['model'], strict=True)
     return model
 

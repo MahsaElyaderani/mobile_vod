@@ -25,7 +25,7 @@ class ClassificationTests(unittest.TestCase):
         torch.set_num_threads(2)
 
     def test_all_width_pairs_and_classification_transfer(self):
-        for family, widths in [('mobilenet_v1', (.35, 1.)), ('timm_mobilenet_v2', (.5, 1.))]:
+        for family, widths in [('timm_mobilenet_v2', (.5, 1.)), ('efficientnet_b0', (1.,))]:
             for big in widths:
                 for small in widths:
                     with self.subTest(family=family, big=big, small=small):
@@ -33,7 +33,7 @@ class ClassificationTests(unittest.TestCase):
                         paired = PairedConfig(fast_width_mult=small)
                         model = JointClassifier(cfg, paired, 30).eval()
                         x = torch.rand(1, 3, 320, 320)*2-1
-                        if family == 'timm_mobilenet_v2':
+                        if cfg.uses_timm:
                             x = PairedFrames(x, torch.rand(1, 3, 160, 160)*2-1)
                         logits = model(x, use_big=torch.tensor([[True, False, True]]))
                         self.assertEqual(logits.shape, (1, 3, 30))
@@ -53,11 +53,11 @@ class ClassificationTests(unittest.TestCase):
                         with torch.no_grad():
                             output, _ = detector.forward_selected(x, None, torch.tensor([False]))
                         self.assertTrue(torch.isfinite(output['class_logits']).all())
-                        if family == 'timm_mobilenet_v2':
+                        if cfg.uses_timm:
                             self.assertIsInstance(detector.small_projection, torch.nn.Identity)
 
     def test_standalone_sizes_and_legacy_resolution(self):
-        for family, widths in [('mobilenet_v1', (.35, 1.)), ('timm_mobilenet_v2', (.5, 1.))]:
+        for family, widths in [('timm_mobilenet_v2', (.5, 1.)), ('efficientnet_b0', (1.,)), ('tinynet_d', (1.,))]:
             for width in widths:
                 for role, size in [('small', 160), ('big', 320)]:
                     cfg, _ = resolve_model_config(width, backbone=family, model_size=role)
@@ -67,15 +67,15 @@ class ClassificationTests(unittest.TestCase):
                         output, state = model.forward_step(torch.zeros(1, 3, size, size))
                     self.assertEqual(state[0].shape[-2:], (size//32, size//32))
                     self.assertTrue(torch.isfinite(output['class_logits']).all())
-        self.assertEqual(resolve_model_config(.35)[0].image_size, 160)
-        for family, width in (('mobilenet_v1', 1.), ('timm_mobilenet_v2', .5)):
+        self.assertEqual(resolve_model_config(.5)[0].image_size, 160)
+        for family, width in (('timm_mobilenet_v2', 1.), ('timm_mobilenet_v2', .5)):
             for size in (160, 320):
                 cfg, _ = resolve_model_config(width, image_size=size, backbone=family)
                 self.assertEqual(cfg.image_size, size)
         with self.assertRaises(ValueError):
             resolve_model_config(1., image_size=320, model_size='small')
         from config import SSDConfig
-        legacy = {'model_config': model_config_dict(ModelConfig(width_mult=.35, mobilenet_output_channels=358)),
+        legacy = {'model_config': model_config_dict(ModelConfig(width_mult=.5)),
                   'ssd_config': asdict(SSDConfig())}
         self.assertEqual(resolve_model_config(None, checkpoint=legacy)[0].image_size, 320)
         with self.assertRaises(ValueError):
@@ -97,7 +97,7 @@ class ClassificationTests(unittest.TestCase):
         self.assertTrue(torch.equal(frame.big[:, 0, 0], torch.tensor([1., -1., -1.])))
 
     def test_classification_checkpoint_format_mapping_and_shapes(self):
-        cfg = make_joint_config('mobilenet_v1')
+        cfg = make_joint_config('timm_mobilenet_v2')
         model = JointClassifier(cfg, PairedConfig(), 30)
         payload = {'classification_format_version': 1, 'stage': 'joint_pretrain', 'objective': 'vid_multilabel_bce',
                    'class_to_idx': {str(k): k-1 for k in range(1,31)}, 'model_config': model_config_dict(cfg),
@@ -107,9 +107,9 @@ class ClassificationTests(unittest.TestCase):
         with self.assertRaises(ValueError): classifier_from_payload({**payload, 'stage': 'stage2'})
         with self.assertRaises(ValueError): classifier_from_payload({**payload, 'class_to_idx': {'x': 0}})
         with self.assertRaises(ValueError):
-            PairedVOD(LSTMSSD(cfg), PairedConfig(fast_width_mult=.5))
+            PairedVOD(LSTMSSD(cfg), PairedConfig(fast_width_mult=.35))
         with self.assertRaises(ValueError):
-            model.transfer_to_detector(PairedVOD(LSTMSSD(make_joint_config('mobilenet_v1', .35))))
+            model.transfer_to_detector(PairedVOD(LSTMSSD(make_joint_config('timm_mobilenet_v2', .5))))
 
 
 class MatchedTests(unittest.TestCase):
@@ -121,7 +121,8 @@ class MatchedTests(unittest.TestCase):
         torch.manual_seed(23)
         frames = PairedFrames(torch.rand(1, 3, 320, 320)*2-1,
                               torch.rand(1, 3, 160, 160)*2-1)
-        for experiment in ('small_050', 'big_120d', 'joint_120d'):
+        for experiment in ('small_050', 'big_120d', 'joint_120d',
+                           'small_tinynet_d', 'big_efficientnet_b0', 'joint_efficientnet_b0_tinynet_d'):
             with self.subTest(experiment=experiment):
                 model = build_model(experiment, 'classification', 7).train()
                 reference = deepcopy(model)
@@ -162,14 +163,13 @@ class MatchedTests(unittest.TestCase):
 
     def test_reuse_guard_preserves_other_configurations(self):
         torch.set_num_threads(2)
-        for family, frozen in (('mobilenet_v1', True), ('timm_mobilenet_v2', False)):
+        for family, frozen in (('timm_mobilenet_v2', False), ('efficientnet_b0', False)):
             with self.subTest(family=family):
                 model = JointClassifier(make_joint_config(family),
-                    PairedConfig(fast_width_mult=.35 if family == 'mobilenet_v1' else .5,
+                    PairedConfig(fast_width_mult=1. if family == 'efficientnet_b0' else .5,
                                  freeze_bn_stats=frozen), 30).train()
                 frames = torch.zeros(1, 3, 320, 320)
-                if family == 'timm_mobilenet_v2':
-                    frames = PairedFrames(frames, torch.zeros(1, 3, 160, 160))
+                frames = PairedFrames(frames, torch.zeros(1, 3, 160, 160))
                 bn = next(m for m in model.big_backbone.modules() if isinstance(m, torch.nn.BatchNorm2d))
                 before = int(bn.num_batches_tracked)
                 with torch.no_grad(), patch.object(model.big_backbone, 'forward', wraps=model.big_backbone.forward) as big:

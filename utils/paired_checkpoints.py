@@ -8,10 +8,9 @@ import tempfile
 
 import torch
 
-from config import ModelConfig, SSDConfig, model_config_dict
+from config import ModelConfig, SSDConfig, model_config_dict, checkpoint_model_config
 from models.lstm_ssd import LSTMSSD
 from models.paired_vod import PairedVOD
-from models.mobilenet_v1 import initialize_by_channel_slicing
 from paired_config import PairedConfig
 from routing.predictions import sha256_file
 from utils.checkpoints import model_from_checkpoint
@@ -54,14 +53,14 @@ def paired_from_payload(payload, expected_stage=None):
         raise ValueError("Unknown paired checkpoint stage.")
     if expected_stage is not None and payload["stage"] != expected_stage:
         raise ValueError(f"Expected paired {expected_stage} checkpoint.")
-    model = PairedVOD(LSTMSSD(ModelConfig(**payload["model_config"]),
+    model = PairedVOD(LSTMSSD(checkpoint_model_config(payload["model_config"]),
                              SSDConfig(**payload["ssd_config"])),
                       PairedConfig(**payload["paired_config"]))
     model.load_state_dict(payload["model"], strict=True)
     return model
 
 
-def initialize_pair(big_path, config, fast_init="slice-big", fast_path=None,
+def initialize_pair(big_path, config, fast_init="timm", fast_path=None,
                     init_source="standalone_detection", model_config=None,
                     backbone_weights=None, random_backbones=False):
     if init_source == "joint_pretrain":
@@ -94,10 +93,6 @@ def initialize_pair(big_path, config, fast_init="slice-big", fast_path=None,
         if not is_timm or fast_path:
             raise ValueError("timm initialization requires a timm big checkpoint and no fast checkpoint.")
         source["fast_pretrained"] = model.fast_backbone.load_pretrained()
-    elif fast_init == "slice-big":
-        if fast_path:
-            raise ValueError("--fast-checkpoint requires --fast-init checkpoint.")
-        source["fast_transfer"] = initialize_by_channel_slicing(model.fast_backbone, model.big.backbone)
     elif fast_init == "checkpoint":
         if not fast_path:
             raise ValueError("--fast-init checkpoint requires --fast-checkpoint.")

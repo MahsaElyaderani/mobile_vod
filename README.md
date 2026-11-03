@@ -1,9 +1,16 @@
 # Mobile VOD
 
 PyTorch video object detection inspired by *Looking Fast and Slow: Memory-Guided
-Mobile Video Object Detection*. The project combines MobileNet backbones,
+Mobile Video Object Detection*. The project combines pretrained image backbones,
 recurrent memory, and SSD detection heads for the 30 ImageNet VID classes.
-It supports MobileNetV1 and timm MobileNetV2, with standalone and joint models.
+It supports timm MobileNetV2 and the EfficientNet-B0/TinyNet-D pair, with standalone
+and joint models. Both families use a shared ConvLSTM and SSD detection heads in
+joint mode. Backbone weights are ImageNet-pretrained; SSD heads are trained here.
+
+| Model family | Small backbone (160×160) | Big backbone (320×320) |
+| --- | --- | --- |
+| MobileNetV2 | `mobilenetv2_050.lamb_in1k` | `mobilenetv2_100.ra_in1k`, `mobilenetv2_110d.ra_in1k`, or `mobilenetv2_120d.ra_in1k` |
+| EfficientNet / TinyNet | `tinynet_d.in1k` | `efficientnet_b0.ra_in1k` |
 
 ## Setup
 
@@ -34,7 +41,7 @@ Annotations must be video-aware COCO-style JSON with `videos`, `images`,
 `annotations`, and `categories`; raw ImageNet XML files are not loaded directly.
 The included `splits/train_25pct.json` must match your training annotation file
 (the loader checks its hash). Dataset files and trained checkpoints are not included.
-Initial MobileNetV2 training downloads pretrained weights through timm.
+Initial backbone training downloads pretrained weights through timm.
 
 ## Train and evaluate
 
@@ -73,3 +80,26 @@ python -m evaluate.evaluate_paired_vod --help
 
 Existing standalone detection stages remain available through `train.py`;
 `train_joint_pretrain.py` and `train_paired_vod.py` provide separate joint entry points.
+
+For the EfficientNet-B0/TinyNet-D standalone and joint experiments, run:
+
+```bash
+bash run_efficientnet_tinynet.sh
+```
+
+This launcher uses 5 classification epochs (linear decay, batch 8) followed by
+100 detection epochs (cosine decay, batch 4), using the same configured training
+subset and validation sampling. It resumes its latest checkpoints and evaluates
+its best detectors in a separate `efficientnet_tinynet_subset25_class5_linear_det100_cosine`
+run directory. These defaults differ from `run_matched.sh`; match settings before
+comparing model families.
+
+Inspect saved classification and detection histories with:
+
+```bash
+bash show_train_history.sh
+```
+
+MobileNetV1 is no longer supported by the active code. Its checkpoints require
+the archived version; existing MobileNetV2 and EfficientNet checkpoint formats
+are preserved. Local archives, datasets, and checkpoint weights are not published.

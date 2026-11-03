@@ -143,10 +143,10 @@ def build_training_data(args, model, metadata):
     if bool(args.val_annotations) != bool(args.val_frames_root):
         raise ValueError("Supply both validation annotations and frames root.")
     print(f"Loading training annotations and indexing clips: {args.annotations}", flush=True)
-    train = selected_dataset(args, model.model_cfg.image_size, args.clip_length, args.clip_stride, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.backbone == "timm_mobilenet_v2")
+    train = selected_dataset(args, model.model_cfg.image_size, args.clip_length, args.clip_stride, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.uses_timm)
     print(f"Training index ready: {len(train.video_ids)} videos, {len(train)} clips.", flush=True)
     train.transform = TrainTransform(model.model_cfg.image_size, interpolation=model.model_cfg.input_interpolation,
-                                     paired=model.model_cfg.backbone == "timm_mobilenet_v2")
+                                     paired=model.model_cfg.uses_timm)
     if not metadata:
         metadata.update(category_id_to_label=train.category_id_to_label, label_to_name=train.label_to_name,
                         ssd_config=asdict(model.ssd_cfg))
@@ -158,7 +158,7 @@ def build_training_data(args, model, metadata):
         print(f"Loading validation annotations: {args.val_annotations}", flush=True)
         val_args = SimpleNamespace(annotations=args.val_annotations, frames_root=args.val_frames_root,
                                    video_ids=args.val_video_ids, max_videos=args.max_val_videos, subset_seed=args.subset_seed)
-        val = selected_dataset(val_args, model.model_cfg.image_size, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.backbone == "timm_mobilenet_v2")
+        val = selected_dataset(val_args, model.model_cfg.image_size, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.uses_timm)
         select_paired_frames(val, args.val_frames_per_video, args.subset_seed)
         validate_native_categories(metadata, val)
         guard_held_out([data_signature(train)], val)
@@ -269,7 +269,7 @@ def train_pair(args):
                            small_only_state_policy=args.small_only_state_policy, freeze_bn_stats=not args.train_bn,
                            fast_bn_momentum=args.fast_bn_momentum)
         from utils.joint_initialization import make_joint_config
-        fresh_config = (make_joint_config(args.backbone or 'mobilenet_v1',
+        fresh_config = (make_joint_config(args.backbone or 'timm_mobilenet_v2',
                                           1. if args.big_width_mult is None else args.big_width_mult)
                         if args.init_source == 'fresh' else None)
         model, metadata, sources = initialize_pair(args.big_checkpoint, cfg, args.fast_init, args.fast_checkpoint,

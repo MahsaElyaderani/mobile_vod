@@ -7,7 +7,7 @@ import random
 from pathlib import Path
 from dataclasses import asdict, replace
 import torch
-from config import ModelConfig, SSDConfig, TrainConfig, model_config_dict
+from config import ModelConfig, SSDConfig, TrainConfig, model_config_dict, checkpoint_model_config
 from datasets.imagenet_vid import ImageNetVIDDataset
 from datasets.transforms import TrainTransform, EvalTransform
 from datasets.dataloader import build_dataloader
@@ -18,7 +18,7 @@ from engine.trainer import train_detector_stage1, train_recurrent_stage2, freeze
 from engine.evaluator import evaluate_vid
 from utils.runtime import (tqdm, select_video_subset, select_validation_frames,
                            atomic_save_checkpoint, load_checkpoint, epoch_checkpoint_path)
-from utils.pretrained import initialize_standalone_backbone, sha256_file
+from routing.predictions import sha256_file
 from utils.checkpoints import FORMAT_VERSION, model_from_checkpoint, transfer_stage1, capture_rng, restore_rng
 
 
@@ -30,13 +30,13 @@ def parse_args(argv=None):
         choices=['1', '2'], metavar='{standalone_pretrain,standalone_detection}',
         help='Non-recurrent detection pretraining or recurrent detection with frozen backbone.')
     phases.add_argument('--stage', choices=['1', '2'], help='Legacy alias: 1=standalone_pretrain, 2=standalone_detection.')
-    p.add_argument('--backbone', choices=('mobilenet_v1', 'timm_mobilenet_v2'), default=None)
+    p.add_argument('--backbone', choices=('timm_mobilenet_v2',), default=None)
     p.add_argument('--image-size', type=int, choices=(160, 320), default=None)
     p.add_argument('--model-size', choices=('big', 'small'), help='New model role: big=320, small=160; defaults to small for width <1.')
     p.add_argument('--width-mult', type=float, default=None,
-                   help='New stage-1 width (0.35/1.0); otherwise inherited.')
-    p.add_argument('--backbone-init', choices=('exact', 'slice-pretrained', 'timm'), default=None,
-                   help='New stage 1: defaults to exact for V1, timm for V2; slice-pretrained supports V1 width 0.35.')
+                   help='New stage-1 V2 width (0.5/1.0/1.1/1.2); otherwise inherited.')
+    p.add_argument('--backbone-init', choices=('timm',), default=None,
+                   help='New stage 1 uses official timm pretrained weights.')
     p.add_argument('--annotations', required=True)
     p.add_argument('--frames-root', required=True)
     p.add_argument('--epochs', type=int, required=True, help='Total epoch target, including resumed epochs.')
@@ -59,7 +59,7 @@ def parse_args(argv=None):
     g.add_argument('--resume', help='Resume the same stage, including optimizer and RNG.')
     p.add_argument('--resume-best-checkpoint',
                    help='Import the historical best when resuming into a new output directory.')
-    p.add_argument('--backbone-weights', default=None)
+    p.add_argument('--backbone-weights', default=None, help=argparse.SUPPRESS)
     p.add_argument('--checkpoint-out', help='Latest checkpoint; numbered epochs and best share its directory.')
     p.add_argument('--learning-rate', type=float)
     p.add_argument('--max-videos', type=int)
@@ -82,7 +82,7 @@ def parse_args(argv=None):
     if (a.max_val_videos is not None or a.val_frames_per_video is not None) and not a.val_annotations:
         p.error('Validation subset options require validation paths')
     if a.stage == '1' and a.checkpoint_in:
-        p.error('Stage 1 uses --backbone-weights or --resume')
+        p.error('Stage 1 uses official timm weights or --resume')
     if a.stage == '2' and not (a.checkpoint_in or a.resume):
         p.error('Stage 2 requires --checkpoint-in from stage 1 or --resume from stage 2')
     if a.backbone_init is not None and (a.resume or a.stage != '1'):
@@ -225,7 +225,7 @@ def _recover_pending_validation(resume, model, val_dataset, criterion, device,
 def resolve_model_config(width, checkpoint=None, image_size=None, backbone=None, model_size=None):
     """Keep serialized configuration authoritative on transfer and resume."""
     if checkpoint is not None:
-        mc = ModelConfig(**checkpoint['model_config'])
+        mc = checkpoint_model_config(checkpoint['model_config'])
         sc = SSDConfig(**checkpoint['ssd_config'])
         if backbone is not None and backbone != mc.backbone:
             raise ValueError('--backbone differs from the checkpoint.')
@@ -237,7 +237,7 @@ def resolve_model_config(width, checkpoint=None, image_size=None, backbone=None,
             raise ValueError('--image-size differs from the checkpoint.')
         return mc, sc
     width = 1.0 if width is None else width
-    backbone = backbone or "mobilenet_v1"
+    backbone = backbone or "timm_mobilenet_v2"
     if model_size is None and image_size is not None:
         model_size = 'small' if image_size == 160 else 'big'
     role = model_size or ('small' if width < 1 else 'big')
@@ -245,7 +245,7 @@ def resolve_model_config(width, checkpoint=None, image_size=None, backbone=None,
     if image_size is not None and image_size != size:
         raise ValueError('--image-size conflicts with model role; use --model-size big/small explicitly.')
     return ModelConfig(width_mult=width, backbone=backbone, image_size=size,
-                       mobilenet_output_channels=1280 if backbone == "timm_mobilenet_v2" else max(8, int(1024 * width))), SSDConfig()
+                       mobilenet_output_channels=1280), SSDConfig()
 
 
 def main():
@@ -335,13 +335,9 @@ def main():
     if resume:
         pretrained_source = resume['pretrained_source']
     elif a.stage == '1':
-        method = a.backbone_init or ('timm' if mc.backbone == 'timm_mobilenet_v2' else 'exact')
-        if mc.backbone == 'timm_mobilenet_v2':
-            if method != 'timm':
-                raise ValueError('The timm backbone requires --backbone-init timm.')
-            pretrained_source = model.backbone.load_pretrained()
-        else:
-            pretrained_source = initialize_standalone_backbone(model.backbone, a.backbone_weights, method)
+        if a.backbone_init not in (None, 'timm'):
+            raise ValueError('The timm backbone requires --backbone-init timm.')
+        pretrained_source = model.backbone.load_pretrained()
         tqdm.write(f'Loaded every backbone tensor: {pretrained_source}')
     else:
         if (initial.get('category_id_to_label') != dataset.category_id_to_label or

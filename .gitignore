@@ -25,3 +25,8 @@ venv/
 *.pt
 *.pth
 *.ckpt
+
+# Local source backups
+/archives/
+/mobile_vod_archives/
+/pre_v1_cleanup_*/

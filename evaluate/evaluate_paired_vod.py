@@ -132,7 +132,7 @@ def main(argv=None):
         raise ValueError('Matched standalone evaluation uses --mode big (the sole backbone, including standalone small).')
     if payload.get("validation_pending"):
         raise ValueError("Recover pending detector validation before evaluation.")
-    dataset = selected_dataset(args, model.model_cfg.image_size, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.backbone == "timm_mobilenet_v2")
+    dataset = selected_dataset(args, model.model_cfg.image_size, interpolation=model.model_cfg.input_interpolation, paired=model.model_cfg.uses_timm)
     select_paired_frames(dataset, args.frames_per_video, args.subset_seed)
     validate_native_categories(payload, dataset)
     guard_held_out(payload.get("training_signatures", []), dataset)

@@ -1,4 +1,4 @@
-"""Matched V2 classification -> detection experiments; legacy trainers are unchanged."""
+"""Matched timm classification -> detection experiments; legacy trainers are unchanged."""
 import argparse
 from copy import copy
 from pathlib import Path
@@ -24,24 +24,29 @@ from train_joint_pretrain import classification_epoch
 from utils.checkpoints import capture_rng, restore_rng
 from utils.joint_initialization import make_joint_config
 from utils.paired_checkpoints import paired_metadata, run_lock
-from utils.pretrained import sha256_file
+from routing.predictions import sha256_file
 from utils.resume import resume_defaults, saved_arguments, restore_optimizer
 from utils.runtime import load_checkpoint, atomic_save_checkpoint
 
 EXPERIMENTS = {'small_050': .5, 'big_100': 1., 'big_110d': 1.1, 'big_120d': 1.2,
-               'joint_100': 1., 'joint_110d': 1.1, 'joint_120d': 1.2}
+               'joint_100': 1., 'joint_110d': 1.1, 'joint_120d': 1.2,
+               'small_tinynet_d': 1., 'big_efficientnet_b0': 1.,
+               'joint_efficientnet_b0_tinynet_d': 1.}
 
 
 class MatchedDetector(PairedVOD):
     def __init__(self, experiment, seed=0):
-        cfg = make_joint_config('timm_mobilenet_v2', EXPERIMENTS[experiment])
-        self.standalone = None if experiment.startswith('joint_') else ('small' if experiment == 'small_050' else 'big')
+        family = ('tinynet_d' if experiment == 'small_tinynet_d' else
+                  'efficientnet_b0' if 'efficientnet_b0' in experiment else 'timm_mobilenet_v2')
+        cfg = make_joint_config(family, EXPERIMENTS[experiment])
+        paired = PairedConfig(fast_width_mult=.5 if family == 'timm_mobilenet_v2' else 1.)
+        self.standalone = None if experiment.startswith('joint_') else ('small' if experiment.startswith('small_') else 'big')
         if self.standalone is None:
-            super().__init__(LSTMSSD(cfg), PairedConfig(fast_width_mult=.5))
+            super().__init__(LSTMSSD(cfg), paired)
         else:
             nn.Module.__init__(self)
             self.big = LSTMSSD(cfg)
-            self.paired_config = PairedConfig(fast_width_mult=.5)
+            self.paired_config = paired
             self.fast_backbone = nn.Identity()
             self.small_projection = nn.Identity()
             if self.standalone == 'small':
@@ -106,10 +111,12 @@ def parse_args(argv=None):
     parser.set_defaults(clip_length=6, clip_stride=6, batch_size=2, val_frames_per_video=20)
     parser.add_argument('--task', choices=('classification', 'detection'), required=True)
     parser.add_argument('--experiment', choices=tuple(EXPERIMENTS), required=True)
-    parser.add_argument('--lr-schedule', choices=('constant', 'linear'), default='constant')
+    parser.add_argument('--lr-schedule', choices=('constant', 'linear', 'cosine'), default='constant')
     parser.add_argument('--validate-every', type=int, default=5000, help='Budgeted validation interval in optimizer updates.')
     parser.add_argument('--steps', type=int, default=3)
     parser.add_argument('--init-checkpoint')
+    parser.add_argument('--expand-subset', action='store_true',
+                        help='Continue joint cosine detection on a larger subset in a fresh output directory.')
     args = resume_defaults(parser, parse_paths(parser, 'train_matched', argv), argv)
     if args.validate_every < 1:
         parser.error('validate-every must be positive')
@@ -159,24 +166,32 @@ def train_budgeted(model, train_data, args, optimizer, resume, checkpoint):
               'updates': 0, 'epoch': 1, 'batch': 0, 'sampling_version': 1}
     if resume:
         saved = resume.get('budget')
+        if saved and 'origin_updates' in saved:
+            if saved['batches_per_epoch'] != batches:
+                raise ValueError('Continuation dataset/batch count changed on resume.')
+            budget['total_updates'] = saved['total_updates']
         if not saved or any(saved[k] != budget[k] for k in ('epochs', 'total_updates', 'sampling_version')):
-            raise ValueError('A linear schedule requires the original predetermined budget on resume.')
+            raise ValueError('A budgeted schedule requires the original predetermined budget on resume.')
         budget.update(saved)
         if (not 0 <= budget['batch'] <= batches or
-                budget['updates'] != (budget['epoch'] - 1) * batches + budget['batch'] or
+                budget['updates'] != budget.get('origin_updates', 0) +
+                (budget['epoch'] - budget.get('origin_epoch', 1)) * batches + budget['batch'] or
                 not 0 <= budget['updates'] <= budget['total_updates']):
             raise ValueError('Checkpoint batch position and completed update count disagree.')
         if args.learning_rate is not None and any(args.learning_rate != lr for lr in resume['scheduler']['base_lrs']):
             raise ValueError('Changing the initial LR would change the fixed-budget schedule; use a new run.')
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
-        lambda step: max(0., 1. - step / budget['total_updates']))
+    if args.lr_schedule == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=budget['total_updates'])
+    else:
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
+            lambda step: max(0., 1. - step / budget['total_updates']))
     if resume:
         scheduler.load_state_dict(resume['scheduler'])
         if scheduler.last_epoch != budget['updates']:
             raise ValueError('Scheduler and completed update counts disagree.')
         for group, lr in zip(optimizer.param_groups, scheduler.get_last_lr()):
             group['lr'] = lr
-    print(f"Budget: {budget['updates']}/{budget['total_updates']} updates; linear LR, no warmup.", flush=True)
+    print(f"Budget: {budget['updates']}/{budget['total_updates']} updates; {args.lr_schedule} LR, no warmup.", flush=True)
     if budget['updates'] >= budget['total_updates']:
         return resume
     # Step only after a successful optimizer update, including inside the reused loops.
@@ -212,14 +227,53 @@ def train_budgeted(model, train_data, args, optimizer, resume, checkpoint):
     return payload
 
 
+def expand_subset_checkpoint(resume, definition, signatures, args):
+    """Fork a detector's training state; only the dataset and sampling position change."""
+    if (not resume or args.task != 'detection' or not args.experiment.startswith('joint_') or
+            args.lr_schedule != 'cosine' or args.learning_rate is not None):
+        raise ValueError('Expansion requires joint detection --resume with cosine and no LR override.')
+    old = resume['run_definition']
+    if any(definition[k] != old[k] for k in ('arguments', 'validation', 'num_workers')):
+        raise ValueError('Expansion must preserve training options and validation.')
+    before, after = old['training'], definition['training']
+    if (any(before[k] != after[k] for k in before if k not in ('video_ids', 'image_ids')) or
+            not set(before['video_ids']) < set(after['video_ids']) or
+            not set(before['image_ids']) < set(after['image_ids'])):
+        raise ValueError('Expansion requires a strict superset from the same annotations.')
+    saved = resume.get('budget', {})
+    batches = saved.get('batches_per_epoch', saved.get('total_updates', 0) // args.epochs)
+    if (saved.get('epochs') != args.epochs or saved.get('sampling_version') != 1 or
+            not 0 <= saved.get('batch', -1) <= batches or
+            saved.get('updates') != saved.get('origin_updates', 0) +
+            (saved.get('epoch', 0) - saved.get('origin_epoch', 1)) * batches + saved.get('batch', -1) or
+            not 0 < saved.get('updates', 0) < saved.get('total_updates', 0) or
+            resume['scheduler']['last_epoch'] != saved['updates'] or
+            resume['scheduler'].get('T_max') != saved['total_updates']):
+        raise ValueError('Source must have valid, unfinished cosine progress and the original epoch target.')
+    scores = [row['validation']['mAP@0.5'] for row in resume['history']]
+    if (not scores or not all(math.isfinite(score) for score in scores) or
+            resume['history'][-1].get('update') != saved['updates'] or scores[-1] != max(scores)):
+        raise ValueError('Expand from the best validated detection checkpoint.')
+    destination = Path(args.checkpoint_out)
+    if destination.parent.resolve() == Path(args.resume).resolve().parent or list(destination.parent.glob('*.pt')):
+        raise FileExistsError('Expansion requires a separate directory without checkpoints.')
+    epoch = saved['epoch'] + 1
+    return {**resume, 'run_id': uuid.uuid4().hex, 'epoch': epoch, 'run_definition': definition,
+            'resume_arguments': saved_arguments(args), 'training_signatures': signatures,
+            'sources': {**resume['sources'], 'continuation_sha256': sha256_file(args.resume)},
+            'budget': {**saved, 'epoch': epoch, 'batch': 0, 'origin_epoch': epoch,
+                       'origin_updates': saved['updates']}}
+
+
 def train(args):
+    expanding = vars(args).pop('expand_subset', False)  # One-time action, never inherited on resume.
     resume = load_checkpoint(args.resume) if args.resume else None
     source = load_checkpoint(args.init_checkpoint) if args.init_checkpoint and not resume else None
     if resume and (resume['experiment'] != args.experiment or resume['stage'] != 'matched_' + args.task):
         raise ValueError('Resume must use the same matched experiment and stage.')
     seed_training(args.seed)
     model = model_from_matched(resume) if resume else build_model(args.experiment, args.task, args.seed)
-    sources, signatures = {}, []
+    sources, signatures = {}, list(resume['training_signatures']) if resume else []
     if source:
         if source.get('stage') != 'matched_classification' or source.get('experiment') != args.experiment:
             raise ValueError('Detection must initialize from classification of the same experiment.')
@@ -246,6 +300,10 @@ def train(args):
     if args.lr_schedule == 'constant':
         definition['arguments'].pop('lr_schedule')
         definition['arguments'].pop('validate_every')
+    if expanding:
+        resume = expand_subset_checkpoint(resume, definition, signatures, args)
+        resume['budget']['batches_per_epoch'] = min(len(train_data) // args.batch_size,
+                                                   args.max_batches or len(train_data))
     if resume and definition != resume['run_definition']:
         raise ValueError('Matched training settings or data changed on resume.')
     destination = Path(args.checkpoint_out)
@@ -287,8 +345,8 @@ def train(args):
         return resume
     history, run_id = (list(resume['history']), resume['run_id']) if resume else ([], uuid.uuid4().hex)
     if args.task == 'classification':
-        train_data = VIDClassificationDataset(train_data, 'timm_mobilenet_v2', True)
-        val_data = VIDClassificationDataset(val_data, 'timm_mobilenet_v2', False)
+        train_data = VIDClassificationDataset(train_data, model.model_cfg.backbone, True)
+        val_data = VIDClassificationDataset(val_data, model.model_cfg.backbone, False)
 
     def checkpoint(epoch, stats, budget=None, scheduler=None, validate=True):
         rng = capture_rng()
@@ -333,7 +391,11 @@ def train(args):
             print(f"Validation {key}={metrics[key]:.6f}; class coverage {len(metrics['present_classes'])}/30", flush=True)
         return payload
 
-    if args.lr_schedule == 'linear':
+    if args.lr_schedule in ('linear', 'cosine'):
+        if expanding:
+            # Keep the source best as the baseline even if every new validation is worse.
+            atomic_save_checkpoint(resume, best_path, overwrite=False)
+            atomic_save_checkpoint(resume, destination, overwrite=False)
         return train_budgeted(model, train_data, args, optimizer, resume, checkpoint)
     for epoch in range(start + 1, args.epochs + 1):
         # Identical sampling/augmentation streams across architectures; exact epoch-boundary resume.

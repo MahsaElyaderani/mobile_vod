@@ -42,7 +42,7 @@ class ResumeTests(unittest.TestCase):
         payload = {'run_definition': {'arguments': {
             'clip_length': 3, 'batch_size': 2, 'freeze_big_in_joint': True,
             'annotations': '/old/server/train.json', 'device': 'cuda', 'learning_rate': .1}},
-            'paired_config': {'fast_width_mult': .35, 'fast_image_size': 160,
+            'paired_config': {'fast_width_mult': .5, 'fast_image_size': 160,
                               'freeze_bn_stats': True}}
         with patch('utils.resume.load_checkpoint', return_value=payload):
             args = parse_args(['--resume', 'saved.pt', '--checkpoint-out', '/new/run.pt',

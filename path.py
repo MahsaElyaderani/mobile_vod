@@ -23,7 +23,6 @@ RUNS_DIR = PROJECT_ROOT / "runs"
 RESULTS_DIR = PROJECT_ROOT / "results"
 MATCHED_TRAIN_SUBSET = PROJECT_ROOT / "splits/train_25pct.json"
 TIMM_CACHE = WEIGHTS_DIR / "timm"
-BACKBONE_WEIGHTS = WEIGHTS_DIR / "mobilenet_v1_1.0_224_backbone.pt"
 
 # Default validation data for training runs.
 TRAIN_VALIDATION_ANNOTATIONS = VAL_ANNOTATIONS
@@ -34,9 +33,9 @@ TRAIN_VALIDATION_FRAMES = VAL_FRAMES
 TASK_PATHS = {
     "train_matched": dict(checkpoint_out=None, init_checkpoint=None, resume=None, video_ids=None, val_video_ids=None),
     "train": dict(checkpoint_in=None, resume=None, resume_best_checkpoint=None,
-                  checkpoint_out=None, backbone_weights=BACKBONE_WEIGHTS),
-    "train_joint_pretrain": dict(checkpoint_out=None, resume=None, backbone_weights=BACKBONE_WEIGHTS, video_ids=None),
-    "train_paired_vod": dict(big_checkpoint=None, fast_checkpoint=None, backbone_weights=BACKBONE_WEIGHTS,
+                  checkpoint_out=None, backbone_weights=None),
+    "train_joint_pretrain": dict(checkpoint_out=None, resume=None, backbone_weights=None, video_ids=None),
+    "train_paired_vod": dict(big_checkpoint=None, fast_checkpoint=None, backbone_weights=None,
                              resume=None, checkpoint_out=None, video_ids=None, val_video_ids=None),
     "evaluate": dict(checkpoint=None),
     "evaluate_paired_vod": dict(checkpoint=None,
@@ -45,19 +44,18 @@ TASK_PATHS = {
     "compare_paired_runs": dict(runs=None, output_dir=None),  # runs: list of paths
     "compare_visual_runs": dict(run_a=None, run_b=None, output_dir=None),
     "sample_vid_videos": dict(output=None),
-    "prepare_weights": dict(checkpoint=None, output=BACKBONE_WEIGHTS),
     "prepare_joint_training": dict(checkpoint=None, checkpoint_out=None, big_checkpoint=None),
 }
 
 # Existing shell experiment selections; change these here when selecting another run.
-EVALUATION_BIG = RUNS_DIR / "big_stage2_continued/stage2_best.pt"
-EVALUATION_SMALL = RUNS_DIR / "standalone_alpha035_320_stage2/latest_best.pt"
-EVALUATION_JOINT = RUNS_DIR / "joint/detector_best.pt"
-PREJOINT_PAIR_DIR = RUNS_DIR / "paired_warmup_10_5_matched"
+EVALUATION_BIG = None  # Set a supported native V2 stage-2 checkpoint for run_evaluation.sh.
+EVALUATION_SMALL = None
+EVALUATION_JOINT = None
+PREJOINT_PAIR_DIR = None
 PREJOINT_BIG = None
 PREJOINT_OUTPUT = None  # Must be a fresh directory; original overwrite protection applies.
-RESUME_JOINT = RUNS_DIR / "joint/detector.pt"
-RESUME_FROZEN_BIG = RUNS_DIR / "joint_random_frozen_big/detector.pt"
+RESUME_JOINT = None
+RESUME_FROZEN_BIG = None
 
 
 def resolve_path(value):
